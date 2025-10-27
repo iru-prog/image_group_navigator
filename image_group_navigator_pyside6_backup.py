@@ -7,9 +7,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from PySide6 import QtWidgets, QtCore, QtGui, QtMultimedia, QtMultimediaWidgets
-from PIL import Image
-import io
+from PySide6 import QtWidgets, QtCore, QtGui
 
 
 class DropPathLine(QtWidgets.QLineEdit):
@@ -45,40 +43,32 @@ class DropPathLine(QtWidgets.QLineEdit):
 
 class FullScreenViewer(QtWidgets.QWidget):
     """フルスクリーン画像ビューア"""
+    
     def __init__(self, parent, initial_index=0):
         super().__init__()
         self.parent_window = parent
         self.current_index = initial_index
-
+        
         # フルスクリーン設定
         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
         self.setStyleSheet("background-color: black;")
-
-        # 画像表示ラベル（親ウィジェットの子として配置）
+        self.showFullScreen()
+        
+        # 画像表示ラベル（フルサイズ）
         self.image_label = QtWidgets.QLabel(self)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("background-color: black;")
-
-        # 情報表示ラベル（画像の上に重ねて左下に配置）
+        self.image_label.setGeometry(self.rect())
+        
+        # 情報表示ラベル（画像の上に重ねる）
         self.info_label = QtWidgets.QLabel(self)
-        self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        self.info_label.setStyleSheet("color: white; background-color: rgba(0, 0, 0, 180); padding: 8px; font-size: 12px;")
-        self.info_label.raise_()  # 最前面に
-
+        self.info_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.info_label.setStyleSheet("color: white; background-color: rgba(0, 0, 0, 180); padding: 10px; font-size: 14px;")
+        self.info_label.setFixedHeight(50)
+        
         self._current_pixmap = None
         
-        # APNG再生用
-        self._apng_frames = []
-        self._apng_frame_index = 0
-        self._apng_timer = QtCore.QTimer(self)
-        self._apng_timer.timeout.connect(self._next_apng_frame)
-
-        # フルスクリーン表示
-        self.showFullScreen()
-
         # 初期画像を表示
-        self.show_current_image()
-
         self.show_current_image()
 
     def get_all_files_in_current_group(self):
@@ -112,26 +102,17 @@ class FullScreenViewer(QtWidgets.QWidget):
         filepath = files[self.current_index]
         
         try:
-            ext = os.path.splitext(filepath)[1].lower()
-            
-            # APNG判定
-            if ext == '.png' and self._is_apng(filepath):
-                self._show_apng(filepath, files)
+            pixmap = QtGui.QPixmap(filepath)
+            if not pixmap.isNull():
+                self._current_pixmap = pixmap
+                self.update_scaled_pixmap()
+                
+                # 情報表示を更新
+                filename = os.path.basename(filepath)
+                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}"
+                self.info_label.setText(info_text)
             else:
-                # 静止画
-                pixmap = QtGui.QPixmap(filepath)
-                if not pixmap.isNull():
-                    self._apng_timer.stop()
-                    self._apng_frames = []
-                    self._current_pixmap = pixmap
-                    self.update_scaled_pixmap()
-                    
-                    # 情報表示を更新
-                    filename = os.path.basename(filepath)
-                    info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}"
-                    self.info_label.setText(info_text)
-                else:
-                    self.info_label.setText("画像を読み込めませんでした")
+                self.info_label.setText("画像を読み込めませんでした")
         except Exception as e:
             self.info_label.setText(f"エラー: {e}")
 
@@ -145,187 +126,44 @@ class FullScreenViewer(QtWidgets.QWidget):
             )
             self.image_label.setPixmap(scaled)
 
-
-    def _is_apng(self, filepath):
-        """PNGファイルがAPNGかチェック"""
-        try:
-            with Image.open(filepath) as img:
-                return getattr(img, 'is_animated', False)
-        except:
-            return False
-    
-    def _show_apng(self, filepath, files):
-        """APNGを読み込んで再生"""
-        self._apng_timer.stop()
-        self._apng_frames = []
-        self._apng_frame_index = 0
-        
-        try:
-            img = Image.open(filepath)
-            
-            # 全フレームを読み込み
-            for frame_index in range(getattr(img, 'n_frames', 1)):
-                img.seek(frame_index)
-                frame = img.convert('RGBA')
-                
-                # PIL ImageをQPixmapに変換
-                data = frame.tobytes('raw', 'RGBA')
-                qimage = QtGui.QImage(data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888)
-                pixmap = QtGui.QPixmap.fromImage(qimage)
-                
-                # フレーム時間を取得（ミリ秒）
-                duration = img.info.get('duration', 100)
-                
-                self._apng_frames.append({
-                    'pixmap': pixmap,
-                    'duration': duration
-                })
-            
-            if self._apng_frames:
-                self._show_apng_frame(0)
-                
-                # 情報表示を更新
-                filename = os.path.basename(filepath)
-                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
-                self.info_label.setText(info_text)
-                
-                if len(self._apng_frames) > 1:
-                    self._apng_timer.start(self._apng_frames[0]['duration'])
-            else:
-                self.info_label.setText("APNGを読み込めませんでした")
-                
-        except Exception as e:
-            self.info_label.setText(f"APNGエラー: {e}")
-            self._apng_frames = []
-    
-    def _show_apng_frame(self, index):
-        """APNGの指定フレームを表示"""
-        if 0 <= index < len(self._apng_frames):
-            frame_data = self._apng_frames[index]
-            self._current_pixmap = frame_data['pixmap']
-            self.update_scaled_pixmap()
-            self._apng_frame_index = index
-    
-    def _next_apng_frame(self):
-        """次のAPNGフレームを表示"""
-        if not self._apng_frames:
-            self._apng_timer.stop()
-            return
-        
-        self._apng_frame_index = (self._apng_frame_index + 1) % len(self._apng_frames)
-        self._show_apng_frame(self._apng_frame_index)
-        
-        # 次のフレームの時間でタイマーを再設定
-        if self._apng_frames:
-            duration = self._apng_frames[self._apng_frame_index]['duration']
-            self._apng_timer.setInterval(duration)
-
     def resizeEvent(self, event):
         """ウィンドウサイズ変更時"""
         super().resizeEvent(event)
-        # 画像ラベルを画面全体に
-        self.image_label.setGeometry(0, 0, self.width(), self.height())
-        # 情報ラベルを左下に配置
-        info_height = 35
-        info_width = min(600, self.width() - 20)
-        self.info_label.setGeometry(10, self.height() - info_height - 10, info_width, info_height)
+        # 画像ラベルをフルサイズに
+        self.image_label.setGeometry(self.rect())
+        # 情報ラベルを下部中央に配置
+        info_width = min(800, self.width() - 40)
+        info_x = (self.width() - info_width) // 2
+        info_y = self.height() - 70
+        self.info_label.setGeometry(info_x, info_y, info_width, 50)
         # 画像を再スケール
         self.update_scaled_pixmap()
 
     def keyPressEvent(self, event):
         """キーボード操作"""
         if event.key() == QtCore.Qt.Key_Escape:
+            # ESCキーで閉じる
             self.close()
         elif event.key() in (QtCore.Qt.Key_Right, QtCore.Qt.Key_Down):
             # 次の画像
             self.current_index += 1
             files = self.get_all_files_in_current_group()
-            
             if self.current_index >= len(files):
-                # 現在のグループの最後に到達 → 次のグループへ
-                if self.move_to_next_middle_group():
-                    self.current_index = 0
-                    files = self.get_all_files_in_current_group()
-                else:
-                    # 次のグループがない場合は最初に戻る
-                    self.current_index = 0
-            
+                self.current_index = 0  # 最後まで行ったら最初に戻る
             self.show_current_image()
+            # メインウィンドウの選択も同期
             self.parent_window.right_list.setCurrentRow(self.current_index)
-            
         elif event.key() in (QtCore.Qt.Key_Left, QtCore.Qt.Key_Up):
             # 前の画像
             self.current_index -= 1
-            
+            files = self.get_all_files_in_current_group()
             if self.current_index < 0:
-                # 現在のグループの最初に到達 → 前のグループへ
-                if self.move_to_prev_middle_group():
-                    files = self.get_all_files_in_current_group()
-                    self.current_index = len(files) - 1
-                else:
-                    # 前のグループがない場合は最後に戻る
-                    files = self.get_all_files_in_current_group()
-                    self.current_index = len(files) - 1
-            
+                self.current_index = len(files) - 1  # 最初より前に行ったら最後に戻る
             self.show_current_image()
+            # メインウィンドウの選択も同期
             self.parent_window.right_list.setCurrentRow(self.current_index)
         else:
             super().keyPressEvent(event)
-    
-    def move_to_next_middle_group(self):
-        """次の中間グループに移動"""
-        middle_list = self.parent_window.middle_list
-        current_row = middle_list.currentRow()
-        
-        if current_row < middle_list.count() - 1:
-            # 次のグループがある
-            middle_list.setCurrentRow(current_row + 1)
-            return True
-        else:
-            # 最後のグループ → 左リストの次に移動
-            return self.move_to_next_left_group()
-    
-    def move_to_prev_middle_group(self):
-        """前の中間グループに移動"""
-        middle_list = self.parent_window.middle_list
-        current_row = middle_list.currentRow()
-        
-        if current_row > 0:
-            # 前のグループがある
-            middle_list.setCurrentRow(current_row - 1)
-            return True
-        else:
-            # 最初のグループ → 左リストの前に移動
-            return self.move_to_prev_left_group()
-    
-    def move_to_next_left_group(self):
-        """次の左グループに移動"""
-        left_list = self.parent_window.left_list
-        current_row = left_list.currentRow()
-        
-        if current_row < left_list.count() - 1:
-            # 次のグループがある
-            left_list.setCurrentRow(current_row + 1)
-            # 中リストの最初を選択
-            if self.parent_window.middle_list.count() > 0:
-                self.parent_window.middle_list.setCurrentRow(0)
-            return True
-        return False
-    
-    def move_to_prev_left_group(self):
-        """前の左グループに移動"""
-        left_list = self.parent_window.left_list
-        current_row = left_list.currentRow()
-        
-        if current_row > 0:
-            # 前のグループがある
-            left_list.setCurrentRow(current_row - 1)
-            # 中リストの最後を選択
-            middle_count = self.parent_window.middle_list.count()
-            if middle_count > 0:
-                self.parent_window.middle_list.setCurrentRow(middle_count - 1)
-            return True
-        return False
 
     def mousePressEvent(self, event):
         """マウスクリックで閉じる"""
@@ -334,7 +172,7 @@ class FullScreenViewer(QtWidgets.QWidget):
 
 
 class ImagePreviewWidget(QtWidgets.QLabel):
-    """画像/動画プレビュー表示ウィジェット"""
+    """画像プレビュー表示ウィジェット"""
     
     # ダブルクリックシグナル
     doubleClicked = QtCore.Signal()
@@ -347,40 +185,13 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         self.setText("画像を選択してください\n\nダブルクリックでフルスクリーン表示")
         self.setScaledContents(False)
         self._current_pixmap = None
-        self._current_movie = None
-        self._current_filepath = None
-        
-        # APNG再生用
-        self._apng_frames = []
-        self._apng_frame_index = 0
-        self._apng_timer = QtCore.QTimer(self)
-        self._apng_timer.timeout.connect(self._next_apng_frame)
 
     def set_image(self, filepath):
-        """画像/動画/APNG を読み込んで表示"""
+        """画像を読み込んで表示"""
         if not filepath or not os.path.exists(filepath):
             self.clear_image()
             return
         
-        self._current_filepath = filepath
-        ext = os.path.splitext(filepath)[1].lower()
-        
-        # GIFアニメーション
-        if ext == '.gif':
-            self._show_animated_gif(filepath)
-        # PNG（APNGの可能性）
-        elif ext == '.png':
-            if self._is_apng(filepath):
-                self._show_apng(filepath)
-            else:
-                self._show_static_image(filepath)
-        else:
-            # 静止画
-            self._show_static_image(filepath)
-    
-    def _show_static_image(self, filepath):
-        """静止画を表示"""
-        self._clear_movie()
         try:
             pixmap = QtGui.QPixmap(filepath)
             if pixmap.isNull():
@@ -392,109 +203,11 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         except Exception as e:
             self.setText(f"エラー: {e}")
             self._current_pixmap = None
-    
-    def _show_animated_gif(self, filepath):
-        """GIFアニメーションを表示"""
-        self._clear_movie()
-        self._current_pixmap = None
-        try:
-            self._current_movie = QtGui.QMovie(filepath)
-            if self._current_movie.isValid():
-                self._current_movie.setScaledSize(self.size())
-                self.setMovie(self._current_movie)
-                self._current_movie.start()
-            else:
-                self.setText("GIFを読み込めませんでした")
-                self._current_movie = None
-        except Exception as e:
-            self.setText(f"エラー: {e}")
-            self._current_movie = None
-    
-    def _clear_movie(self):
-        """ムービーをクリア"""
-        if self._current_movie:
-            self._current_movie.stop()
-            self._current_movie = None
-            self.setMovie(None)
 
-
-    def _is_apng(self, filepath):
-        """PNGファイルがAPNGかチェック"""
-        try:
-            with Image.open(filepath) as img:
-                return getattr(img, 'is_animated', False)
-        except:
-            return False
-    
-    def _show_apng(self, filepath):
-        """APNGを読み込んで再生"""
-        self._clear_movie()
-        self._current_pixmap = None
-        self._apng_timer.stop()
-        self._apng_frames = []
-        self._apng_frame_index = 0
-        
-        try:
-            img = Image.open(filepath)
-            
-            # 全フレームを読み込み
-            for frame_index in range(getattr(img, 'n_frames', 1)):
-                img.seek(frame_index)
-                frame = img.convert('RGBA')
-                
-                # PIL ImageをQPixmapに変換
-                data = frame.tobytes('raw', 'RGBA')
-                qimage = QtGui.QImage(data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888)
-                pixmap = QtGui.QPixmap.fromImage(qimage)
-                
-                # フレーム時間を取得（ミリ秒）
-                duration = img.info.get('duration', 100)
-                
-                self._apng_frames.append({
-                    'pixmap': pixmap,
-                    'duration': duration
-                })
-            
-            if self._apng_frames:
-                self._show_apng_frame(0)
-                if len(self._apng_frames) > 1:
-                    self._apng_timer.start(self._apng_frames[0]['duration'])
-            else:
-                self.setText("APNGを読み込めませんでした")
-                
-        except Exception as e:
-            self.setText(f"APNGエラー: {e}")
-            self._apng_frames = []
-    
-    def _show_apng_frame(self, index):
-        """APNGの指定フレームを表示"""
-        if 0 <= index < len(self._apng_frames):
-            frame_data = self._apng_frames[index]
-            self._current_pixmap = frame_data['pixmap']
-            self._update_scaled_pixmap()
-            self._apng_frame_index = index
-    
-    def _next_apng_frame(self):
-        """次のAPNGフレームを表示"""
-        if not self._apng_frames:
-            self._apng_timer.stop()
-            return
-        
-        self._apng_frame_index = (self._apng_frame_index + 1) % len(self._apng_frames)
-        self._show_apng_frame(self._apng_frame_index)
-        
-        # 次のフレームの時間でタイマーを再設定
-        if self._apng_frames:
-            duration = self._apng_frames[self._apng_frame_index]['duration']
-            self._apng_timer.setInterval(duration)
     def clear_image(self):
         """画像をクリア"""
         self.setText("画像を選択してください\n\nダブルクリックでフルスクリーン表示")
-        self._clear_movie()
-        self._apng_timer.stop()
-        self._apng_frames = []
         self._current_pixmap = None
-        self._current_filepath = None
 
     def _update_scaled_pixmap(self):
         """ウィンドウサイズに合わせて画像を拡大縮小"""
@@ -509,10 +222,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
     def resizeEvent(self, event):
         """ウィンドウサイズ変更時に画像を再スケール"""
         super().resizeEvent(event)
-        if self._current_movie and self._current_movie.isValid():
-            self._current_movie.setScaledSize(self.size())
-        else:
-            self._update_scaled_pixmap()
+        self._update_scaled_pixmap()
 
     def mouseDoubleClickEvent(self, event):
         """ダブルクリックイベント"""
@@ -1021,7 +731,6 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     else:
                         self.sort_name_radio.setChecked(True)
             except Exception as e:
-                print(f"設定の読み込みに失敗: {e}")
 
     def save_settings(self):
         """設定を保存"""
@@ -1033,7 +742,6 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"設定の保存に失敗: {e}")
 
     def closeEvent(self, event):
         """ウィンドウを閉じる時"""
