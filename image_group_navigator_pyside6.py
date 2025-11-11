@@ -366,10 +366,12 @@ class FullScreenViewer(QtWidgets.QWidget):
         # 情報表示ラベル（画像の上に重ねて左下に配置）
         self.info_label = QtWidgets.QLabel(self)
         self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        self.info_label.setWordWrap(True)  # 自動改行を有効化
         self.info_label.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 128); padding: 10px; font-size: 14px;"
+            "color: white; background-color: rgba(0, 0, 0, 180); padding: 12px; font-size: 15px;"
         )
+        # 固定の最小サイズを設定（2行分の高さを確保）
+        self.info_label.setMinimumHeight(70)
+        self.info_label.setMinimumWidth(400)
 
         # 影効果を追加
         shadow = QtWidgets.QGraphicsDropShadowEffect(self)
@@ -823,11 +825,11 @@ class FullScreenViewer(QtWidgets.QWidget):
         super().resizeEvent(event)
         # 画像ラベルをウィンドウ全体に
         self.image_label.setGeometry(self.rect())
-        # 情報ラベルを左下に配置（幅は画面の60%、高さは自動）
-        label_width = int(self.width() * 0.6)
-        self.info_label.setMaximumWidth(label_width)
-        self.info_label.adjustSize()
-        self.info_label.move(10, self.height() - self.info_label.height() - 10)
+        # 情報ラベルを左下に配置
+        # 幅は画面の半分か600pxのいずれか小さい方
+        label_width = min(600, int(self.width() * 0.5))
+        self.info_label.setFixedSize(label_width, 70)
+        self.info_label.move(10, self.height() - 80)
         # 画像を再スケール
         if self._current_pixmap:
             self.update_scaled_pixmap()
