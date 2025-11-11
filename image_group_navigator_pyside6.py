@@ -10,6 +10,109 @@ from datetime import datetime
 from PySide6 import QtWidgets, QtCore, QtGui, QtMultimedia, QtMultimediaWidgets
 from PIL import Image
 import io
+from collections import OrderedDict
+
+
+class ImageCache:
+    """画像キャッシュクラス（LRU方式）"""
+
+    def __init__(self, max_size=10):
+        self.max_size = max_size
+        self.cache = OrderedDict()
+
+    def get(self, filepath):
+        """キャッシュから画像を取得"""
+        if filepath in self.cache:
+            # アクセスされたので最新に移動
+            self.cache.move_to_end(filepath)
+            return self.cache[filepath]
+        return None
+
+    def put(self, filepath, pixmap):
+        """キャッシュに画像を追加"""
+        if filepath in self.cache:
+            self.cache.move_to_end(filepath)
+        else:
+            self.cache[filepath] = pixmap
+            # 最大サイズを超えたら古いものを削除
+            if len(self.cache) > self.max_size:
+                self.cache.popitem(last=False)
+
+    def clear(self):
+        """キャッシュをクリア"""
+        self.cache.clear()
+
+
+class ImagePreloader(QtCore.QThread):
+    """バックグラウンドで画像を読み込むスレッド"""
+
+    imageLoaded = QtCore.Signal(str, object)  # filepath, pixmap/frames
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.filepath = None
+        self.running = False
+
+    def load_image(self, filepath):
+        """画像読み込みをリクエスト"""
+        self.filepath = filepath
+        self.running = True
+        if not self.isRunning():
+            self.start()
+
+    def run(self):
+        """バックグラウンド処理"""
+        if not self.filepath or not os.path.exists(self.filepath):
+            return
+
+        try:
+            ext = os.path.splitext(self.filepath)[1].lower()
+
+            # APNG判定
+            if ext == ".png" and self._is_apng(self.filepath):
+                frames = self._load_apng_frames(self.filepath)
+                if frames:
+                    self.imageLoaded.emit(self.filepath, frames)
+            else:
+                # 静止画
+                pixmap = QtGui.QPixmap(self.filepath)
+                if not pixmap.isNull():
+                    self.imageLoaded.emit(self.filepath, pixmap)
+        except Exception as e:
+            print(f"画像読み込みエラー: {e}")
+
+        self.running = False
+
+    def _is_apng(self, filepath):
+        """PNGファイルがAPNGかチェック"""
+        try:
+            with Image.open(filepath) as img:
+                return getattr(img, "is_animated", False)
+        except:
+            return False
+
+    def _load_apng_frames(self, filepath):
+        """APNGの全フレームを読み込み"""
+        try:
+            img = Image.open(filepath)
+            frames = []
+
+            for frame_index in range(getattr(img, "n_frames", 1)):
+                img.seek(frame_index)
+                frame = img.convert("RGBA")
+
+                data = frame.tobytes("raw", "RGBA")
+                qimage = QtGui.QImage(
+                    data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888
+                )
+                pixmap = QtGui.QPixmap.fromImage(qimage)
+                duration = img.info.get("duration", 100)
+
+                frames.append({"pixmap": pixmap, "duration": duration})
+
+            return frames if frames else None
+        except:
+            return None
 
 
 class ShortcutManager:
@@ -263,12 +366,16 @@ class FullScreenViewer(QtWidgets.QWidget):
         self._apng_timer = QtCore.QTimer(self)
         self._apng_timer.timeout.connect(self._next_apng_frame)
 
+        # 画像キャッシュと先読み
+        self.cache = ImageCache(max_size=10)
+        self.preloader = ImagePreloader(self)
+        self.preloader.imageLoaded.connect(self._on_image_preloaded)
+        self.preload_count = 3  # 前後3枚ずつ先読み
+
         # フルスクリーン表示
         self.showFullScreen()
 
         # 初期画像を表示
-        self.show_current_image()
-
         self.show_current_image()
 
     def get_all_files_in_current_group(self):
@@ -301,6 +408,27 @@ class FullScreenViewer(QtWidgets.QWidget):
 
         filepath = files[self.current_index]
 
+        # キャッシュをチェック
+        cached = self.cache.get(filepath)
+        if cached:
+            if isinstance(cached, list):
+                # APNGフレーム
+                self._show_cached_apng(cached, filepath, files)
+            else:
+                # 静止画
+                self._apng_timer.stop()
+                self._apng_frames = []
+                self._current_pixmap = cached
+                self.update_scaled_pixmap()
+
+                filename = os.path.basename(filepath)
+                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}"
+                self.info_label.setText(info_text)
+
+            # 先読みを開始
+            self._start_preloading(files)
+            return
+
         try:
             ext = os.path.splitext(filepath)[1].lower()
 
@@ -316,6 +444,9 @@ class FullScreenViewer(QtWidgets.QWidget):
                     self._current_pixmap = pixmap
                     self.update_scaled_pixmap()
 
+                    # キャッシュに追加
+                    self.cache.put(filepath, pixmap)
+
                     # 情報表示を更新
                     filename = os.path.basename(filepath)
                     info_text = (
@@ -326,6 +457,9 @@ class FullScreenViewer(QtWidgets.QWidget):
                     self.info_label.setText("画像を読み込めませんでした")
         except Exception as e:
             self.info_label.setText(f"エラー: {e}")
+
+        # 先読みを開始
+        self._start_preloading(files)
 
     def update_scaled_pixmap(self):
         """画像をスクリーンサイズに合わせて表示"""
@@ -371,6 +505,9 @@ class FullScreenViewer(QtWidgets.QWidget):
 
             if self._apng_frames:
                 self._show_apng_frame(0)
+
+                # キャッシュに追加
+                self.cache.put(filepath, self._apng_frames)
 
                 # 情報表示を更新
                 filename = os.path.basename(filepath)
@@ -579,6 +716,45 @@ class FullScreenViewer(QtWidgets.QWidget):
             return True
         return False
 
+    def _start_preloading(self, files):
+        """前後の画像を先読み"""
+        for offset in range(-self.preload_count, self.preload_count + 1):
+            if offset == 0:
+                continue
+            idx = self.current_index + offset
+            if 0 <= idx < len(files):
+                filepath = files[idx]
+                if not self.cache.get(filepath):
+                    # キャッシュにない場合のみ読み込み
+                    self.preloader.load_image(filepath)
+
+    def _on_image_preloaded(self, filepath, data):
+        """画像が読み込まれたときのコールバック"""
+        if isinstance(data, list):
+            # APNGフレーム
+            self.cache.put(filepath, data)
+        else:
+            # 静止画
+            self.cache.put(filepath, data)
+
+    def _show_cached_apng(self, frames, filepath, files):
+        """キャッシュされたAPNGフレームを表示"""
+        self._apng_timer.stop()
+        self._apng_frames = frames
+        self._apng_frame_index = 0
+
+        if self._apng_frames:
+            self._show_apng_frame(0)
+
+            filename = os.path.basename(filepath)
+            info_text = (
+                f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
+            )
+            self.info_label.setText(info_text)
+
+            if len(self._apng_frames) > 1:
+                self._apng_timer.start(self._apng_frames[0]["duration"])
+
     def mousePressEvent(self, event):
         """マウスクリックで閉じる"""
         if event.button() == QtCore.Qt.RightButton:
@@ -591,8 +767,9 @@ class ImagePreviewWidget(QtWidgets.QLabel):
     # ダブルクリックシグナル
     doubleClicked = QtCore.Signal()
 
-    def __init__(self):
+    def __init__(self, parent_window=None, cache_size=5):
         super().__init__()
+        self.parent_window = parent_window
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMinimumSize(300, 300)
         self.setStyleSheet(
@@ -610,6 +787,12 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         self._apng_timer = QtCore.QTimer(self)
         self._apng_timer.timeout.connect(self._next_apng_frame)
 
+        # 画像キャッシュと先読み
+        self.cache = ImageCache(max_size=cache_size)
+        self.preloader = ImagePreloader(self)
+        self.preloader.imageLoaded.connect(self._on_image_preloaded)
+        self.preload_count = 2  # 前後2枚ずつ先読み
+
     def set_image(self, filepath):
         """画像/動画/APNG を読み込んで表示"""
         if not filepath or not os.path.exists(filepath):
@@ -618,6 +801,20 @@ class ImagePreviewWidget(QtWidgets.QLabel):
 
         self._current_filepath = filepath
         ext = os.path.splitext(filepath)[1].lower()
+
+        # キャッシュをチェック
+        cached = self.cache.get(filepath)
+        if cached:
+            if isinstance(cached, list):
+                # APNGフレーム
+                self._show_cached_apng(cached)
+            else:
+                # 静止画
+                self._current_pixmap = cached
+                self._update_scaled_pixmap()
+            # 先読みを開始
+            self._start_preloading()
+            return
 
         # GIFアニメーション
         if ext == ".gif":
@@ -632,6 +829,9 @@ class ImagePreviewWidget(QtWidgets.QLabel):
             # 静止画
             self._show_static_image(filepath)
 
+        # 先読みを開始
+        self._start_preloading()
+
     def _show_static_image(self, filepath):
         """静止画を表示"""
         self._clear_movie()
@@ -643,6 +843,8 @@ class ImagePreviewWidget(QtWidgets.QLabel):
             else:
                 self._current_pixmap = pixmap
                 self._update_scaled_pixmap()
+                # キャッシュに追加
+                self.cache.put(filepath, pixmap)
         except Exception as e:
             self.setText(f"エラー: {e}")
             self._current_pixmap = None
@@ -711,6 +913,8 @@ class ImagePreviewWidget(QtWidgets.QLabel):
                 self._show_apng_frame(0)
                 if len(self._apng_frames) > 1:
                     self._apng_timer.start(self._apng_frames[0]["duration"])
+                # キャッシュに追加
+                self.cache.put(filepath, self._apng_frames)
             else:
                 self.setText("APNGを読み込めませんでした")
 
@@ -765,6 +969,69 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         else:
             self._update_scaled_pixmap()
 
+    def _start_preloading(self):
+        """前後の画像を先読み"""
+        if not self.parent_window:
+            return
+
+        adjacent_files = self._get_adjacent_files()
+        for filepath in adjacent_files:
+            if filepath and not self.cache.get(filepath):
+                # キャッシュにない場合のみ読み込み
+                self.preloader.load_image(filepath)
+
+    def _get_adjacent_files(self):
+        """前後のファイルパスを取得"""
+        if not self.parent_window:
+            return []
+
+        left_item = self.parent_window.left_list.currentItem()
+        middle_item = self.parent_window.middle_list.currentItem()
+        current_row = self.parent_window.right_list.currentRow()
+
+        if not (left_item and middle_item) or current_row < 0:
+            return []
+
+        left_key = left_item.text()
+        middle_key = middle_item.data(QtCore.Qt.UserRole)
+        filelist = self.parent_window.group_dict.get(left_key, [])
+        middle_groups = self.parent_window.get_middle_groups(filelist)
+        files = middle_groups.get(middle_key, [])
+
+        adjacent_files = []
+        # 前後のファイルを取得
+        for offset in range(-self.preload_count, self.preload_count + 1):
+            if offset == 0:
+                continue
+            idx = current_row + offset
+            if 0 <= idx < len(files):
+                filepath = os.path.join(self.parent_window.image_folder, files[idx])
+                adjacent_files.append(filepath)
+
+        return adjacent_files
+
+    def _on_image_preloaded(self, filepath, data):
+        """画像が読み込まれたときのコールバック"""
+        if isinstance(data, list):
+            # APNGフレーム
+            self.cache.put(filepath, data)
+        else:
+            # 静止画
+            self.cache.put(filepath, data)
+
+    def _show_cached_apng(self, frames):
+        """キャッシュされたAPNGフレームを表示"""
+        self._clear_movie()
+        self._current_pixmap = None
+        self._apng_timer.stop()
+        self._apng_frames = frames
+        self._apng_frame_index = 0
+
+        if self._apng_frames:
+            self._show_apng_frame(0)
+            if len(self._apng_frames) > 1:
+                self._apng_timer.start(self._apng_frames[0]["duration"])
+
     def mouseDoubleClickEvent(self, event):
         """ダブルクリックイベント"""
         if event.button() == QtCore.Qt.LeftButton:
@@ -790,6 +1057,8 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.group_keys = []
         self.sort_order = "name"  # "name" または "date"
         self.fullscreen_viewer = None
+        self.preload_count = 2  # 前後2枚ずつ先読み（デフォルト）
+        self.cache_size = 5  # キャッシュサイズ（デフォルト）
 
         # ショートカットマネージャー
         self.shortcut_manager = ShortcutManager()
@@ -877,7 +1146,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         preview_container = QtWidgets.QWidget()
         preview_layout = QtWidgets.QVBoxLayout(preview_container)
         preview_layout.addWidget(QtWidgets.QLabel("プレビュー"))
-        self.preview_widget = ImagePreviewWidget()
+        self.preview_widget = ImagePreviewWidget(parent_window=self, cache_size=self.cache_size)
         self.preview_widget.doubleClicked.connect(self.show_fullscreen)
         preview_layout.addWidget(self.preview_widget, 1)
         content_layout.addWidget(preview_container, 1)
@@ -907,9 +1176,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         if with_buttons:
             btn_layout = QtWidgets.QHBoxLayout()
             up_btn = QtWidgets.QPushButton("↑")
-            up_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
             down_btn = QtWidgets.QPushButton("↓")
-            down_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
             btn_layout.addWidget(up_btn)
             btn_layout.addWidget(down_btn)
             layout.addLayout(btn_layout)
@@ -1399,6 +1666,13 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     else:
                         self.sort_name_radio.setChecked(True)
 
+                    # 先読み設定を復元
+                    self.preload_count = config.get("preload_count", 2)
+                    self.cache_size = config.get("cache_size", 5)
+                    # プレビューウィジェットに設定を適用
+                    if hasattr(self, 'preview_widget'):
+                        self.preview_widget.preload_count = self.preload_count
+
                     # ショートカットキーを復元
                     # self.shortcut_manager.load_from_config(config)
             except Exception as e:
@@ -1407,7 +1681,12 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
     def save_settings(self):
         """設定を保存"""
         try:
-            config = {"folder": self.image_folder, "sort_order": self.sort_order}
+            config = {
+                "folder": self.image_folder,
+                "sort_order": self.sort_order,
+                "preload_count": self.preload_count,
+                "cache_size": self.cache_size,
+            }
             # ショートカットキーを保存
             # self.shortcut_manager.save_to_config(config)
             with open(self.config_path, "w", encoding="utf-8") as f:
