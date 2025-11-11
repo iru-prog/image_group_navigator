@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import json
+import queue
 import subprocess
 from pathlib import Path
 from datetime import datetime
@@ -50,36 +51,56 @@ class ImagePreloader(QtCore.QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.filepath = None
+        self.queue = queue.Queue()
         self.running = False
+        self.stop_requested = False
 
     def load_image(self, filepath):
         """画像読み込みをリクエスト"""
-        self.filepath = filepath
-        self.running = True
+        self.queue.put(filepath)
         if not self.isRunning():
+            self.running = True
+            self.stop_requested = False
             self.start()
+
+    def stop(self):
+        """スレッド停止をリクエスト"""
+        self.stop_requested = True
+        # ダミーアイテムを追加してブロックを解除
+        self.queue.put(None)
 
     def run(self):
         """バックグラウンド処理"""
-        if not self.filepath or not os.path.exists(self.filepath):
-            return
+        while not self.stop_requested:
+            try:
+                # タイムアウト付きで次のファイルを取得
+                filepath = self.queue.get(timeout=1.0)
 
-        try:
-            ext = os.path.splitext(self.filepath)[1].lower()
+                # 停止リクエストのチェック
+                if filepath is None or self.stop_requested:
+                    break
 
-            # APNG判定
-            if ext == ".png" and self._is_apng(self.filepath):
-                frames = self._load_apng_frames(self.filepath)
-                if frames:
-                    self.imageLoaded.emit(self.filepath, frames)
-            else:
-                # 静止画
-                pixmap = QtGui.QPixmap(self.filepath)
-                if not pixmap.isNull():
-                    self.imageLoaded.emit(self.filepath, pixmap)
-        except Exception as e:
-            print(f"画像読み込みエラー: {e}")
+                if not os.path.exists(filepath):
+                    continue
+
+                ext = os.path.splitext(filepath)[1].lower()
+
+                # APNG判定
+                if ext == ".png" and self._is_apng(filepath):
+                    frames = self._load_apng_frames(filepath)
+                    if frames:
+                        self.imageLoaded.emit(filepath, frames)
+                else:
+                    # 静止画
+                    pixmap = QtGui.QPixmap(filepath)
+                    if not pixmap.isNull():
+                        self.imageLoaded.emit(filepath, pixmap)
+
+            except queue.Empty:
+                # キューが空の場合は継続
+                continue
+            except Exception as e:
+                print(f"画像読み込みエラー: {e}")
 
         self.running = False
 
@@ -768,6 +789,17 @@ class FullScreenViewer(QtWidgets.QWidget):
         if event.button() == QtCore.Qt.RightButton:
             self.close()
 
+    def closeEvent(self, event):
+        """ウィンドウを閉じる時の処理"""
+        # プリローダースレッドを停止
+        if hasattr(self, 'preloader'):
+            self.preloader.stop()
+            self.preloader.wait(1000)  # 最大1秒待つ
+        # APNGタイマーを停止
+        if hasattr(self, '_apng_timer'):
+            self._apng_timer.stop()
+        event.accept()
+
 
 class ImagePreviewWidget(QtWidgets.QLabel):
     """画像/動画プレビュー表示ウィジェット"""
@@ -1052,6 +1084,22 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         """ダブルクリックイベント"""
         if event.button() == QtCore.Qt.LeftButton:
             self.doubleClicked.emit()
+
+    def cleanup(self):
+        """クリーンアップ処理"""
+        # プリローダースレッドを停止
+        if hasattr(self, 'preloader'):
+            self.preloader.stop()
+            self.preloader.wait(1000)  # 最大1秒待つ
+        # APNGタイマーを停止
+        if hasattr(self, '_apng_timer'):
+            self._apng_timer.stop()
+        # ムービーをクリア
+        self._clear_movie()
+
+    def __del__(self):
+        """デストラクタ"""
+        self.cleanup()
 
 
 class ImageGroupNavigator(QtWidgets.QMainWindow):
@@ -1747,6 +1795,9 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         """ウィンドウを閉じる時"""
+        # プレビューウィジェットのクリーンアップ
+        if hasattr(self, 'preview_widget'):
+            self.preview_widget.cleanup()
         self.save_settings()
         event.accept()
 
