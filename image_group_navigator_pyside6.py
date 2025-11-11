@@ -1597,19 +1597,29 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
     def _auto_select_first_items(self):
         """最初のグループと画像を自動選択"""
         if self.left_list.count() > 0:
-            self.left_list.setCurrentRow(0)
-            QtCore.QTimer.singleShot(50, self._auto_select_first_middle)
+            # setCurrentRowではなくsetCurrentItemを使用
+            item = self.left_list.item(0)
+            if item:
+                self.left_list.setCurrentItem(item)
+                self.left_list.scrollToItem(item)
+            QtCore.QTimer.singleShot(100, self._auto_select_first_middle)
 
     def _auto_select_first_middle(self):
         """ミドルリストの最初の項目を自動選択"""
         if self.middle_list.count() > 0:
-            self.middle_list.setCurrentRow(0)
-            QtCore.QTimer.singleShot(50, self._auto_select_first_right)
+            item = self.middle_list.item(0)
+            if item:
+                self.middle_list.setCurrentItem(item)
+                self.middle_list.scrollToItem(item)
+            QtCore.QTimer.singleShot(100, self._auto_select_first_right)
 
     def _auto_select_first_right(self):
         """右リストの最初の項目を自動選択"""
         if self.right_list.count() > 0:
-            self.right_list.setCurrentRow(0)
+            item = self.right_list.item(0)
+            if item:
+                self.right_list.setCurrentItem(item)
+                self.right_list.scrollToItem(item)
 
     def on_left_select(self):
         """左リスト選択時"""
