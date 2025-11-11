@@ -1579,10 +1579,28 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 f"{len(image_files)}個の画像ファイルを読み込みました"
             )
 
+            # 最初のグループと画像を自動選択
+            if self.left_list.count() > 0:
+                self.left_list.setCurrentRow(0)  # on_left_selectが呼ばれる
+                # 少し待ってからミドルリストを選択
+                QtCore.QTimer.singleShot(10, self._select_first_middle_and_right)
+
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, "エラー", f"フォルダのスキャンに失敗しました:\n{e}"
             )
+
+    def _select_first_middle_and_right(self):
+        """ミドルリストと右リストの最初の項目を自動選択"""
+        if self.middle_list.count() > 0:
+            self.middle_list.setCurrentRow(0)  # on_middle_selectが呼ばれる
+            # 少し待ってから右リストを選択
+            QtCore.QTimer.singleShot(10, self._select_first_right)
+
+    def _select_first_right(self):
+        """右リストの最初の項目を自動選択"""
+        if self.right_list.count() > 0:
+            self.right_list.setCurrentRow(0)  # on_right_selectが呼ばれてプレビュー表示
 
     def on_left_select(self):
         """左リスト選択時"""
