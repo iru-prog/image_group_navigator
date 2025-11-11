@@ -391,7 +391,8 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.cache = ImageCache(max_size=10)
         self.preloader = ImagePreloader(self)
         self.preloader.imageLoaded.connect(self._on_image_preloaded)
-        self.preload_count = parent.preload_count  # 親ウィンドウの設定を使用
+        self.preload_backward = parent.preload_backward  # 親ウィンドウの設定を使用
+        self.preload_forward = parent.preload_forward  # 親ウィンドウの設定を使用
         self._apng_check_cache = {}  # APNG判定結果のキャッシュ
 
         # フルスクリーン表示
@@ -748,12 +749,20 @@ class FullScreenViewer(QtWidgets.QWidget):
     def _start_preloading(self, files):
         """前後の画像を先読み"""
         # 先読み数が0の場合は何もしない
-        if self.preload_count <= 0:
+        if self.preload_backward <= 0 and self.preload_forward <= 0:
             return
 
-        for offset in range(-self.preload_count, self.preload_count + 1):
-            if offset == 0:
-                continue
+        # 前方のファイルを先読み（-1, -2, -3, ...）
+        for offset in range(-1, -self.preload_backward - 1, -1):
+            idx = self.current_index + offset
+            if 0 <= idx < len(files):
+                filepath = files[idx]
+                if not self.cache.get(filepath):
+                    # キャッシュにない場合のみ読み込み
+                    self.preloader.load_image(filepath)
+
+        # 次方のファイルを先読み（+1, +2, +3, ...）
+        for offset in range(1, self.preload_forward + 1):
             idx = self.current_index + offset
             if 0 <= idx < len(files):
                 filepath = files[idx]
@@ -835,7 +844,8 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         self.cache = ImageCache(max_size=cache_size)
         self.preloader = ImagePreloader(self)
         self.preloader.imageLoaded.connect(self._on_image_preloaded)
-        self.preload_count = 2  # 前後2枚ずつ先読み
+        self.preload_backward = 3  # 前方先読み数
+        self.preload_forward = 7  # 次方先読み数
         self._apng_check_cache = {}  # APNG判定結果のキャッシュ
 
     def set_image(self, filepath):
@@ -1027,7 +1037,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
             return
 
         # 先読み数が0の場合は何もしない
-        if self.preload_count <= 0:
+        if self.preload_backward <= 0 and self.preload_forward <= 0:
             return
 
         adjacent_files = self._get_adjacent_files()
@@ -1055,10 +1065,15 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         files = middle_groups.get(middle_key, [])
 
         adjacent_files = []
-        # 前後のファイルを取得
-        for offset in range(-self.preload_count, self.preload_count + 1):
-            if offset == 0:
-                continue
+        # 前方のファイルを取得（-1, -2, -3, ...）
+        for offset in range(-1, -self.preload_backward - 1, -1):
+            idx = current_row + offset
+            if 0 <= idx < len(files):
+                filepath = os.path.join(self.parent_window.image_folder, files[idx])
+                adjacent_files.append(filepath)
+
+        # 次方のファイルを取得（+1, +2, +3, ...）
+        for offset in range(1, self.preload_forward + 1):
             idx = current_row + offset
             if 0 <= idx < len(files):
                 filepath = os.path.join(self.parent_window.image_folder, files[idx])
@@ -1129,7 +1144,8 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.group_keys = []
         self.sort_order = "name"  # "name" または "date"
         self.fullscreen_viewer = None
-        self.preload_count = 2  # 前後2枚ずつ先読み（デフォルト）
+        self.preload_backward = 3  # 前方先読み数（デフォルト）
+        self.preload_forward = 7  # 次方先読み数（デフォルト）
         self.cache_size = 5  # キャッシュサイズ（デフォルト）
 
         # ショートカットマネージャー
@@ -1173,14 +1189,24 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         folder_layout.addWidget(settings_btn)
 
         # 先読み数設定
-        folder_layout.addWidget(QtWidgets.QLabel("先読み数:"))
-        self.preload_spinbox = QtWidgets.QSpinBox()
-        self.preload_spinbox.setMinimum(0)
-        self.preload_spinbox.setMaximum(10)
-        self.preload_spinbox.setValue(self.preload_count)
-        self.preload_spinbox.setToolTip("前後何枚の画像を先読みするか（0-10枚）")
-        self.preload_spinbox.valueChanged.connect(self.on_preload_count_changed)
-        folder_layout.addWidget(self.preload_spinbox)
+        folder_layout.addWidget(QtWidgets.QLabel("先読み（前:"))
+        self.preload_backward_spinbox = QtWidgets.QSpinBox()
+        self.preload_backward_spinbox.setMinimum(0)
+        self.preload_backward_spinbox.setMaximum(10)
+        self.preload_backward_spinbox.setValue(self.preload_backward)
+        self.preload_backward_spinbox.setToolTip("前方向に何枚の画像を先読みするか（0-10枚）")
+        self.preload_backward_spinbox.valueChanged.connect(self.on_preload_backward_changed)
+        folder_layout.addWidget(self.preload_backward_spinbox)
+
+        folder_layout.addWidget(QtWidgets.QLabel("次:"))
+        self.preload_forward_spinbox = QtWidgets.QSpinBox()
+        self.preload_forward_spinbox.setMinimum(0)
+        self.preload_forward_spinbox.setMaximum(10)
+        self.preload_forward_spinbox.setValue(self.preload_forward)
+        self.preload_forward_spinbox.setToolTip("次方向に何枚の画像を先読みするか（0-10枚）")
+        self.preload_forward_spinbox.valueChanged.connect(self.on_preload_forward_changed)
+        folder_layout.addWidget(self.preload_forward_spinbox)
+        folder_layout.addWidget(QtWidgets.QLabel("枚）"))
 
         main_layout.addLayout(folder_layout)
 
@@ -1365,15 +1391,25 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         if self.group_keys:
             self.refresh_left_list()
 
-    def on_preload_count_changed(self, value):
-        """先読み数変更時"""
-        self.preload_count = value
+    def on_preload_backward_changed(self, value):
+        """前方先読み数変更時"""
+        self.preload_backward = value
         # プレビューウィジェットに反映
         if hasattr(self, 'preview_widget'):
-            self.preview_widget.preload_count = value
+            self.preview_widget.preload_backward = value
         # 設定を保存
         self.save_settings()
-        self.statusBar().showMessage(f"先読み数を{value}枚に変更しました", 2000)
+        self.statusBar().showMessage(f"前方先読み数を{value}枚に変更しました", 2000)
+
+    def on_preload_forward_changed(self, value):
+        """次方先読み数変更時"""
+        self.preload_forward = value
+        # プレビューウィジェットに反映
+        if hasattr(self, 'preview_widget'):
+            self.preview_widget.preload_forward = value
+        # 設定を保存
+        self.save_settings()
+        self.statusBar().showMessage(f"次方先読み数を{value}枚に変更しました", 2000)
 
     def get_file_creation_time(self, filename):
         """ファイルの作成日時を取得"""
@@ -1759,14 +1795,18 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                         self.sort_name_radio.setChecked(True)
 
                     # 先読み設定を復元
-                    self.preload_count = config.get("preload_count", 2)
+                    self.preload_backward = config.get("preload_backward", 3)
+                    self.preload_forward = config.get("preload_forward", 7)
                     self.cache_size = config.get("cache_size", 5)
                     # UIに反映
-                    if hasattr(self, 'preload_spinbox'):
-                        self.preload_spinbox.setValue(self.preload_count)
+                    if hasattr(self, 'preload_backward_spinbox'):
+                        self.preload_backward_spinbox.setValue(self.preload_backward)
+                    if hasattr(self, 'preload_forward_spinbox'):
+                        self.preload_forward_spinbox.setValue(self.preload_forward)
                     # プレビューウィジェットに設定を適用
                     if hasattr(self, 'preview_widget'):
-                        self.preview_widget.preload_count = self.preload_count
+                        self.preview_widget.preload_backward = self.preload_backward
+                        self.preview_widget.preload_forward = self.preload_forward
 
                     # ショートカットキーを復元
                     # self.shortcut_manager.load_from_config(config)
@@ -1779,7 +1819,8 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             config = {
                 "folder": self.image_folder,
                 "sort_order": self.sort_order,
-                "preload_count": self.preload_count,
+                "preload_backward": self.preload_backward,
+                "preload_forward": self.preload_forward,
                 "cache_size": self.cache_size,
             }
             # ショートカットキーを保存
