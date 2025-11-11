@@ -391,7 +391,7 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.cache = ImageCache(max_size=10)
         self.preloader = ImagePreloader(self)
         self.preloader.imageLoaded.connect(self._on_image_preloaded)
-        self.preload_count = 3  # 前後3枚ずつ先読み
+        self.preload_count = parent.preload_count  # 親ウィンドウの設定を使用
         self._apng_check_cache = {}  # APNG判定結果のキャッシュ
 
         # フルスクリーン表示
@@ -747,6 +747,10 @@ class FullScreenViewer(QtWidgets.QWidget):
 
     def _start_preloading(self, files):
         """前後の画像を先読み"""
+        # 先読み数が0の場合は何もしない
+        if self.preload_count <= 0:
+            return
+
         for offset in range(-self.preload_count, self.preload_count + 1):
             if offset == 0:
                 continue
@@ -1020,6 +1024,10 @@ class ImagePreviewWidget(QtWidgets.QLabel):
     def _start_preloading(self):
         """前後の画像を先読み"""
         if not self.parent_window:
+            return
+
+        # 先読み数が0の場合は何もしない
+        if self.preload_count <= 0:
             return
 
         adjacent_files = self._get_adjacent_files()
