@@ -397,6 +397,8 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.preload_backward = parent.preload_backward  # 親ウィンドウの設定を使用
         self.preload_forward = parent.preload_forward  # 親ウィンドウの設定を使用
         self._apng_check_cache = {}  # APNG判定結果のキャッシュ
+        self._current_files = []  # 現在のファイルリスト
+        self._current_filepath = None  # 現在表示中のファイルパス
 
         # フルスクリーン表示
         self.showFullScreen()
@@ -433,6 +435,10 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.current_index = max(0, min(self.current_index, len(files) - 1))
 
         filepath = files[self.current_index]
+
+        # 現在のファイルリストとパスを保存
+        self._current_files = files
+        self._current_filepath = filepath
 
         # キャッシュをチェック
         cached = self.cache.get(filepath)
@@ -780,6 +786,16 @@ class FullScreenViewer(QtWidgets.QWidget):
         else:
             # 静止画
             self.cache.put(filepath, data)
+
+        # 現在表示中の画像の情報を更新（リアルタイムでキャッシュ状況を表示）
+        if self._current_filepath and self._current_files:
+            filename = os.path.basename(self._current_filepath)
+            cache_info = self._get_cache_info(self._current_files)
+            # 現在表示中の画像がAPNGかチェック
+            is_apng = isinstance(self.cache.get(self._current_filepath), list)
+            apng_suffix = " (APNG)" if is_apng else ""
+            info_text = f"{self.current_index + 1} / {len(self._current_files)}  -  {filename}{apng_suffix}\n{cache_info}"
+            self.info_label.setText(info_text)
 
     def _show_cached_apng(self, frames, filepath, files):
         """キャッシュされたAPNGフレームを表示"""
