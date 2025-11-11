@@ -445,7 +445,8 @@ class FullScreenViewer(QtWidgets.QWidget):
                 self.update_scaled_pixmap()
 
                 filename = os.path.basename(filepath)
-                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}"
+                cache_info = self._get_cache_info(files)
+                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}\n{cache_info}"
                 self.info_label.setText(info_text)
 
             # 先読みを開始
@@ -472,9 +473,8 @@ class FullScreenViewer(QtWidgets.QWidget):
 
                     # 情報表示を更新
                     filename = os.path.basename(filepath)
-                    info_text = (
-                        f"{self.current_index + 1} / {len(files)}  -  {filename}"
-                    )
+                    cache_info = self._get_cache_info(files)
+                    info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}\n{cache_info}"
                     self.info_label.setText(info_text)
                 else:
                     self.info_label.setText("画像を読み込めませんでした")
@@ -541,9 +541,8 @@ class FullScreenViewer(QtWidgets.QWidget):
 
                 # 情報表示を更新
                 filename = os.path.basename(filepath)
-                info_text = (
-                    f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
-                )
+                cache_info = self._get_cache_info(files)
+                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)\n{cache_info}"
                 self.info_label.setText(info_text)
 
                 if len(self._apng_frames) > 1:
@@ -789,13 +788,34 @@ class FullScreenViewer(QtWidgets.QWidget):
             self._show_apng_frame(0)
 
             filename = os.path.basename(filepath)
-            info_text = (
-                f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
-            )
+            cache_info = self._get_cache_info(files)
+            info_text = f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)\n{cache_info}"
             self.info_label.setText(info_text)
 
             if len(self._apng_frames) > 1:
                 self._apng_timer.start(self._apng_frames[0]["duration"])
+
+    def _get_cache_info(self, files):
+        """キャッシュ情報を取得"""
+        # 前後でキャッシュされている数を数える
+        cached_backward = 0
+        cached_forward = 0
+
+        # 前方をチェック
+        for offset in range(-1, -self.preload_backward - 1, -1):
+            idx = self.current_index + offset
+            if 0 <= idx < len(files):
+                if self.cache.get(files[idx]):
+                    cached_backward += 1
+
+        # 次方をチェック
+        for offset in range(1, self.preload_forward + 1):
+            idx = self.current_index + offset
+            if 0 <= idx < len(files):
+                if self.cache.get(files[idx]):
+                    cached_forward += 1
+
+        return f"キャッシュ: 前{cached_backward}/{self.preload_backward} 次{cached_forward}/{self.preload_forward}"
 
     def mousePressEvent(self, event):
         """マウスクリックで閉じる"""
