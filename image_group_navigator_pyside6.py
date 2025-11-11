@@ -1200,6 +1200,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.preload_backward = 3  # 前方先読み数（デフォルト）
         self.preload_forward = 7  # 次方先読み数（デフォルト）
         self.cache_size = 5  # キャッシュサイズ（デフォルト）
+        self._first_show = True  # 初回表示フラグ
 
         # ショートカットマネージャー
         self.shortcut_manager = ShortcutManager()
@@ -1579,28 +1580,36 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 f"{len(image_files)}個の画像ファイルを読み込みました"
             )
 
-            # 最初のグループと画像を自動選択
-            if self.left_list.count() > 0:
-                self.left_list.setCurrentRow(0)  # on_left_selectが呼ばれる
-                # 少し待ってからミドルリストを選択
-                QtCore.QTimer.singleShot(10, self._select_first_middle_and_right)
-
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, "エラー", f"フォルダのスキャンに失敗しました:\n{e}"
             )
 
-    def _select_first_middle_and_right(self):
-        """ミドルリストと右リストの最初の項目を自動選択"""
-        if self.middle_list.count() > 0:
-            self.middle_list.setCurrentRow(0)  # on_middle_selectが呼ばれる
-            # 少し待ってから右リストを選択
-            QtCore.QTimer.singleShot(10, self._select_first_right)
+    def showEvent(self, event):
+        """ウィンドウ表示時の処理"""
+        super().showEvent(event)
+        # 初回表示時のみ自動選択を実行
+        if self._first_show and self.left_list.count() > 0:
+            self._first_show = False
+            # イベントループが開始された後に実行
+            QtCore.QTimer.singleShot(50, self._auto_select_first_items)
 
-    def _select_first_right(self):
+    def _auto_select_first_items(self):
+        """最初のグループと画像を自動選択"""
+        if self.left_list.count() > 0:
+            self.left_list.setCurrentRow(0)
+            QtCore.QTimer.singleShot(50, self._auto_select_first_middle)
+
+    def _auto_select_first_middle(self):
+        """ミドルリストの最初の項目を自動選択"""
+        if self.middle_list.count() > 0:
+            self.middle_list.setCurrentRow(0)
+            QtCore.QTimer.singleShot(50, self._auto_select_first_right)
+
+    def _auto_select_first_right(self):
         """右リストの最初の項目を自動選択"""
         if self.right_list.count() > 0:
-            self.right_list.setCurrentRow(0)  # on_right_selectが呼ばれてプレビュー表示
+            self.right_list.setCurrentRow(0)
 
     def on_left_select(self):
         """左リスト選択時"""
