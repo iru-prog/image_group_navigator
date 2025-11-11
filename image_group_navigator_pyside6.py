@@ -371,6 +371,7 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.preloader = ImagePreloader(self)
         self.preloader.imageLoaded.connect(self._on_image_preloaded)
         self.preload_count = 3  # 前後3枚ずつ先読み
+        self._apng_check_cache = {}  # APNG判定結果のキャッシュ
 
         # フルスクリーン表示
         self.showFullScreen()
@@ -471,10 +472,17 @@ class FullScreenViewer(QtWidgets.QWidget):
 
     def _is_apng(self, filepath):
         """PNGファイルがAPNGかチェック"""
+        # キャッシュをチェック
+        if filepath in self._apng_check_cache:
+            return self._apng_check_cache[filepath]
+
         try:
             with Image.open(filepath) as img:
-                return getattr(img, "is_animated", False)
+                result = getattr(img, "is_animated", False)
+                self._apng_check_cache[filepath] = result
+                return result
         except:
+            self._apng_check_cache[filepath] = False
             return False
 
     def _show_apng(self, filepath, files):
@@ -792,6 +800,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         self.preloader = ImagePreloader(self)
         self.preloader.imageLoaded.connect(self._on_image_preloaded)
         self.preload_count = 2  # 前後2枚ずつ先読み
+        self._apng_check_cache = {}  # APNG判定結果のキャッシュ
 
     def set_image(self, filepath):
         """画像/動画/APNG を読み込んで表示"""
@@ -875,10 +884,17 @@ class ImagePreviewWidget(QtWidgets.QLabel):
 
     def _is_apng(self, filepath):
         """PNGファイルがAPNGかチェック"""
+        # キャッシュをチェック
+        if filepath in self._apng_check_cache:
+            return self._apng_check_cache[filepath]
+
         try:
             with Image.open(filepath) as img:
-                return getattr(img, "is_animated", False)
+                result = getattr(img, "is_animated", False)
+                self._apng_check_cache[filepath] = result
+                return result
         except:
+            self._apng_check_cache[filepath] = False
             return False
 
     def _show_apng(self, filepath):
