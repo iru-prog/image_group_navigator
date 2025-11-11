@@ -1181,7 +1181,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             return
 
         left_key = left_item.text()
-        # UserRoleから元のキーを取得+
+        # UserRoleから元のキーを取得++++
         middle_key = middle_item.data(QtCore.Qt.UserRole)
         filelist = self.group_dict.get(left_key, [])
 
