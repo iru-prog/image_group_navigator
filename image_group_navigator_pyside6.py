@@ -365,9 +365,10 @@ class FullScreenViewer(QtWidgets.QWidget):
 
         # 情報表示ラベル（画像の上に重ねて左下に配置）
         self.info_label = QtWidgets.QLabel(self)
-        self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        self.info_label.setWordWrap(True)  # 自動改行を有効化
         self.info_label.setStyleSheet(
-            "color: white; background-color: transparent; padding: 8px; font-size: 14px;"
+            "color: white; background-color: rgba(0, 0, 0, 128); padding: 10px; font-size: 14px;"
         )
 
         # 影効果を追加
@@ -816,6 +817,20 @@ class FullScreenViewer(QtWidgets.QWidget):
                     cached_forward += 1
 
         return f"キャッシュ: 前{cached_backward}/{self.preload_backward} 次{cached_forward}/{self.preload_forward}"
+
+    def resizeEvent(self, event):
+        """ウィンドウサイズ変更時"""
+        super().resizeEvent(event)
+        # 画像ラベルをウィンドウ全体に
+        self.image_label.setGeometry(self.rect())
+        # 情報ラベルを左下に配置（幅は画面の60%、高さは自動）
+        label_width = int(self.width() * 0.6)
+        self.info_label.setMaximumWidth(label_width)
+        self.info_label.adjustSize()
+        self.info_label.move(10, self.height() - self.info_label.height() - 10)
+        # 画像を再スケール
+        if self._current_pixmap:
+            self.update_scaled_pixmap()
 
     def mousePressEvent(self, event):
         """マウスクリックで閉じる"""
