@@ -1568,13 +1568,14 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             for key in self.group_dict.keys():
                 self.group_dict[key].sort(key=self.natural_key)
 
-            # 左リスト更新（ソート順に応じて）
-            self.refresh_left_list()
-
-            # 中・右リストクリア
+            # 中・右リストクリア（refresh_left_listの前に実行）
             self.middle_list.clear()
             self.right_list.clear()
             self.preview_widget.clear_image()
+
+            # 左リスト更新（ソート順に応じて）
+            # これにより自動的に最初の項目が選択され、on_left_select()が呼ばれる
+            self.refresh_left_list()
 
             self.statusBar().showMessage(
                 f"{len(image_files)}個の画像ファイルを読み込みました"
