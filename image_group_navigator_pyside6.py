@@ -12,9 +12,188 @@ from PIL import Image
 import io
 
 
+class ShortcutManager:
+    """ショートカットキー管理クラス"""
+
+    # デフォルトのショートカット設定
+    DEFAULT_SHORTCUTS = {
+        "fullscreen_exit": "F",
+        "reveal_in_finder": "C",
+        "next_middle_group": "Shift+Space",
+        "prev_middle_group": "Space",
+        "next_left_group": "Down",
+        "prev_left_group": "Up",
+    }
+
+    # アクション名の日本語表示
+    ACTION_NAMES = {
+        "fullscreen_exit": "フルスクリーン解除",
+        "reveal_in_finder": "Finderでファイルを表示",
+        "next_middle_group": "次の中間グループに移動",
+        "prev_middle_group": "前の中間グループに移動",
+        "next_left_group": "次の左グループに移動",
+        "prev_left_group": "前の左グループに移動",
+    }
+
+    def __init__(self):
+        self.shortcuts = self.DEFAULT_SHORTCUTS.copy()
+
+    def load_from_config(self, config):
+        """設定から読み込み"""
+        if "shortcuts" in config:
+            self.shortcuts.update(config["shortcuts"])
+
+    def save_to_config(self, config):
+        """設定に保存"""
+        config["shortcuts"] = self.shortcuts
+
+    def get_key_sequence(self, action):
+        """アクションに対応するキーシーケンスを取得"""
+        return self.shortcuts.get(action, "")
+
+    def set_key_sequence(self, action, key_sequence):
+        """アクションにキーシーケンスを設定"""
+        self.shortcuts[action] = key_sequence
+
+    def matches_key_event(self, action, event):
+        """キーイベントが指定アクションと一致するかチェック"""
+        key_seq = self.get_key_sequence(action)
+        if not key_seq:
+            return False
+
+        # キーシーケンスをパース
+        parts = key_seq.split("+")
+        required_modifiers = QtCore.Qt.NoModifier
+        required_key = None
+
+        for part in parts:
+            part = part.strip()
+            if part == "Shift":
+                required_modifiers |= QtCore.Qt.ShiftModifier
+            elif part == "Ctrl" or part == "Control":
+                required_modifiers |= QtCore.Qt.ControlModifier
+            elif part == "Alt" or part == "Option":
+                required_modifiers |= QtCore.Qt.AltModifier
+            elif part == "Meta" or part == "Cmd" or part == "Command":
+                required_modifiers |= QtCore.Qt.MetaModifier
+            elif part == "Space":
+                required_key = QtCore.Qt.Key_Space
+            elif part == "Up":
+                required_key = QtCore.Qt.Key_Up
+            elif part == "Down":
+                required_key = QtCore.Qt.Key_Down
+            elif part == "Left":
+                required_key = QtCore.Qt.Key_Left
+            elif part == "Right":
+                required_key = QtCore.Qt.Key_Right
+            elif len(part) == 1:
+                # 単一文字キー
+                required_key = ord(part.upper())
+
+        if required_key is None:
+            return False
+
+        # イベントのキーとモディファイアをチェック
+        event_key = event.key()
+        event_modifiers = event.modifiers()
+
+        # Shiftキーの特別処理（大文字判定）
+        if required_key in range(ord("A"), ord("Z") + 1):
+            # 大文字が要求されている場合
+            if event_key == required_key and (
+                event_modifiers & QtCore.Qt.ShiftModifier
+            ):
+                return True
+
+        # 通常のキーマッチング
+        return event_key == required_key and event_modifiers == required_modifiers
+
+
+class ShortcutSettingsDialog(QtWidgets.QDialog):
+    """ショートカットキー設定ダイアログ"""
+
+    def __init__(self, shortcut_manager, parent=None):
+        super().__init__(parent)
+        self.shortcut_manager = shortcut_manager
+        self.setWindowTitle("ショートカットキー設定")
+        self.resize(600, 400)
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # 説明ラベル
+        info_label = QtWidgets.QLabel(
+            "各機能のショートカットキーを設定できます。\n"
+            "例: F, Shift+Space, Ctrl+A, Cmd+S など"
+        )
+        layout.addWidget(info_label)
+
+        # テーブル
+        self.table = QtWidgets.QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["機能", "ショートカットキー"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+
+        # ショートカット一覧を表示
+        actions = list(ShortcutManager.DEFAULT_SHORTCUTS.keys())
+        self.table.setRowCount(len(actions))
+
+        for row, action in enumerate(actions):
+            # 機能名
+            name_item = QtWidgets.QTableWidgetItem(
+                ShortcutManager.ACTION_NAMES.get(action, action)
+            )
+            name_item.setFlags(name_item.flags() & ~QtCore.Qt.ItemIsEditable)
+            name_item.setData(QtCore.Qt.UserRole, action)  # アクション名を保存
+            self.table.setItem(row, 0, name_item)
+
+            # ショートカットキー
+            key_item = QtWidgets.QTableWidgetItem(
+                self.shortcut_manager.get_key_sequence(action)
+            )
+            self.table.setItem(row, 1, key_item)
+
+        layout.addWidget(self.table)
+
+        # ボタン
+        button_layout = QtWidgets.QHBoxLayout()
+
+        reset_btn = QtWidgets.QPushButton("デフォルトに戻す")
+        reset_btn.clicked.connect(self.reset_to_default)
+        button_layout.addWidget(reset_btn)
+
+        button_layout.addStretch()
+
+        ok_btn = QtWidgets.QPushButton("OK")
+        ok_btn.clicked.connect(self.accept)
+        button_layout.addWidget(ok_btn)
+
+        cancel_btn = QtWidgets.QPushButton("キャンセル")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        layout.addLayout(button_layout)
+
+    def reset_to_default(self):
+        """デフォルト設定に戻す"""
+        for row in range(self.table.rowCount()):
+            action = self.table.item(row, 0).data(QtCore.Qt.UserRole)
+            default_key = ShortcutManager.DEFAULT_SHORTCUTS.get(action, "")
+            self.table.item(row, 1).setText(default_key)
+
+    def get_shortcuts(self):
+        """現在の設定を取得"""
+        shortcuts = {}
+        for row in range(self.table.rowCount()):
+            action = self.table.item(row, 0).data(QtCore.Qt.UserRole)
+            key_seq = self.table.item(row, 1).text().strip()
+            shortcuts[action] = key_seq
+        return shortcuts
+
+
 class DropPathLine(QtWidgets.QLineEdit):
     """ドラッグ&ドロップ対応のパス入力欄"""
-    
+
     def __init__(self):
         super().__init__()
         self.setAcceptDrops(True)
@@ -45,6 +224,7 @@ class DropPathLine(QtWidgets.QLineEdit):
 
 class FullScreenViewer(QtWidgets.QWidget):
     """フルスクリーン画像ビューア"""
+
     def __init__(self, parent, initial_index=0):
         super().__init__()
         self.parent_window = parent
@@ -62,11 +242,21 @@ class FullScreenViewer(QtWidgets.QWidget):
         # 情報表示ラベル（画像の上に重ねて左下に配置）
         self.info_label = QtWidgets.QLabel(self)
         self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        self.info_label.setStyleSheet("color: white; background-color: rgba(0, 0, 0, 180); padding: 8px; font-size: 12px;")
+        self.info_label.setStyleSheet(
+            "color: white; background-color: transparent; padding: 8px; font-size: 14px;"
+        )
+
+        # 影効果を追加
+        shadow = QtWidgets.QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(8)
+        shadow.setColor(QtGui.QColor(0, 0, 0, 200))
+        shadow.setOffset(2, 2)
+        self.info_label.setGraphicsEffect(shadow)
+
         self.info_label.raise_()  # 最前面に
 
         self._current_pixmap = None
-        
+
         # APNG再生用
         self._apng_frames = []
         self._apng_frame_index = 0
@@ -85,37 +275,37 @@ class FullScreenViewer(QtWidgets.QWidget):
         """現在のグループ内の全ファイルリストを取得"""
         left_item = self.parent_window.left_list.currentItem()
         middle_item = self.parent_window.middle_list.currentItem()
-        
+
         if not (left_item and middle_item):
             return []
-        
+
         left_key = left_item.text()
         middle_key = middle_item.data(QtCore.Qt.UserRole)
-        
+
         filelist = self.parent_window.group_dict.get(left_key, [])
         middle_groups = self.parent_window.get_middle_groups(filelist)
         files = middle_groups.get(middle_key, [])
-        
+
         return [os.path.join(self.parent_window.image_folder, f) for f in files]
 
     def show_current_image(self):
         """現在のインデックスの画像を表示"""
         files = self.get_all_files_in_current_group()
-        
+
         if not files:
             self.close()
             return
-        
+
         # インデックスを範囲内に収める
         self.current_index = max(0, min(self.current_index, len(files) - 1))
-        
+
         filepath = files[self.current_index]
-        
+
         try:
             ext = os.path.splitext(filepath)[1].lower()
-            
+
             # APNG判定
-            if ext == '.png' and self._is_apng(filepath):
+            if ext == ".png" and self._is_apng(filepath):
                 self._show_apng(filepath, files)
             else:
                 # 静止画
@@ -125,10 +315,12 @@ class FullScreenViewer(QtWidgets.QWidget):
                     self._apng_frames = []
                     self._current_pixmap = pixmap
                     self.update_scaled_pixmap()
-                    
+
                     # 情報表示を更新
                     filename = os.path.basename(filepath)
-                    info_text = f"{self.current_index + 1} / {len(files)}  -  {filename}"
+                    info_text = (
+                        f"{self.current_index + 1} / {len(files)}  -  {filename}"
+                    )
                     self.info_label.setText(info_text)
                 else:
                     self.info_label.setText("画像を読み込めませんでした")
@@ -139,85 +331,83 @@ class FullScreenViewer(QtWidgets.QWidget):
         """画像をスクリーンサイズに合わせて表示"""
         if self._current_pixmap:
             scaled = self._current_pixmap.scaled(
-                self.size(),
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
+                self.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
             )
             self.image_label.setPixmap(scaled)
-
 
     def _is_apng(self, filepath):
         """PNGファイルがAPNGかチェック"""
         try:
             with Image.open(filepath) as img:
-                return getattr(img, 'is_animated', False)
+                return getattr(img, "is_animated", False)
         except:
             return False
-    
+
     def _show_apng(self, filepath, files):
         """APNGを読み込んで再生"""
         self._apng_timer.stop()
         self._apng_frames = []
         self._apng_frame_index = 0
-        
+
         try:
             img = Image.open(filepath)
-            
+
             # 全フレームを読み込み
-            for frame_index in range(getattr(img, 'n_frames', 1)):
+            for frame_index in range(getattr(img, "n_frames", 1)):
                 img.seek(frame_index)
-                frame = img.convert('RGBA')
-                
+                frame = img.convert("RGBA")
+
                 # PIL ImageをQPixmapに変換
-                data = frame.tobytes('raw', 'RGBA')
-                qimage = QtGui.QImage(data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888)
+                data = frame.tobytes("raw", "RGBA")
+                qimage = QtGui.QImage(
+                    data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888
+                )
                 pixmap = QtGui.QPixmap.fromImage(qimage)
-                
+
                 # フレーム時間を取得（ミリ秒）
-                duration = img.info.get('duration', 100)
-                
-                self._apng_frames.append({
-                    'pixmap': pixmap,
-                    'duration': duration
-                })
-            
+                duration = img.info.get("duration", 100)
+
+                self._apng_frames.append({"pixmap": pixmap, "duration": duration})
+
             if self._apng_frames:
                 self._show_apng_frame(0)
-                
+
                 # 情報表示を更新
                 filename = os.path.basename(filepath)
-                info_text = f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
+                info_text = (
+                    f"{self.current_index + 1} / {len(files)}  -  {filename} (APNG)"
+                )
                 self.info_label.setText(info_text)
-                
+
                 if len(self._apng_frames) > 1:
-                    self._apng_timer.start(self._apng_frames[0]['duration'])
+                    self._apng_timer.start(self._apng_frames[0]["duration"])
             else:
                 self.info_label.setText("APNGを読み込めませんでした")
-                
+
         except Exception as e:
             self.info_label.setText(f"APNGエラー: {e}")
             self._apng_frames = []
-    
+
     def _show_apng_frame(self, index):
         """APNGの指定フレームを表示"""
         if 0 <= index < len(self._apng_frames):
             frame_data = self._apng_frames[index]
-            self._current_pixmap = frame_data['pixmap']
+            self._current_pixmap = frame_data["pixmap"]
             self.update_scaled_pixmap()
             self._apng_frame_index = index
-    
+
     def _next_apng_frame(self):
         """次のAPNGフレームを表示"""
         if not self._apng_frames:
             self._apng_timer.stop()
             return
-        
+
         self._apng_frame_index = (self._apng_frame_index + 1) % len(self._apng_frames)
         self._show_apng_frame(self._apng_frame_index)
-        
+
         # 次のフレームの時間でタイマーを再設定
         if self._apng_frames:
-            duration = self._apng_frames[self._apng_frame_index]['duration']
+            duration = self._apng_frames[self._apng_frame_index]["duration"]
             self._apng_timer.setInterval(duration)
 
     def resizeEvent(self, event):
@@ -228,102 +418,164 @@ class FullScreenViewer(QtWidgets.QWidget):
         # 情報ラベルを左下に配置
         info_height = 35
         info_width = min(600, self.width() - 20)
-        self.info_label.setGeometry(10, self.height() - info_height - 10, info_width, info_height)
+        self.info_label.setGeometry(
+            10, self.height() - info_height - 10, info_width, info_height
+        )
         # 画像を再スケール
         self.update_scaled_pixmap()
 
     def keyPressEvent(self, event):
         """キーボード操作"""
+        # ショートカットキーのチェック
+        if self.parent_window.shortcut_manager.matches_key_event(
+            "fullscreen_exit", event
+        ):
+            self.close()
+            event.accept()
+            return
+        elif self.parent_window.shortcut_manager.matches_key_event(
+            "reveal_in_finder", event
+        ):
+            self.parent_window.reveal_in_finder()
+            event.accept()
+            return
+
+        # グループ先頭移動（↑↓）
+        if event.key() == QtCore.Qt.Key_Down:
+            self.move_to_next_left_group()
+            event.accept()
+            return
+        elif event.key() == QtCore.Qt.Key_Up:
+            self.move_to_prev_left_group()
+            event.accept()
+            return
+
+        # グループ中間移動
+        if self.parent_window.shortcut_manager.matches_key_event(
+            "next_middle_group", event
+        ):
+            self.move_to_next_middle_group()
+            event.accept()
+            return
+        elif self.parent_window.shortcut_manager.matches_key_event(
+            "prev_middle_group", event
+        ):
+            self.move_to_prev_middle_group()
+            event.accept()
+            return
+
+        # Escapeで閉じる
         if event.key() == QtCore.Qt.Key_Escape:
             self.close()
-        elif event.key() in (QtCore.Qt.Key_Right, QtCore.Qt.Key_Down):
+        # 左右キーでファイル間移動（端に到達したら次の中間グループへ）
+        elif event.key() == QtCore.Qt.Key_Right:
             # 次の画像
             self.current_index += 1
             files = self.get_all_files_in_current_group()
-            
+
             if self.current_index >= len(files):
-                # 現在のグループの最後に到達 → 次のグループへ
+                # 最後の画像を超えたら次の中間グループへ
                 if self.move_to_next_middle_group():
-                    self.current_index = 0
-                    files = self.get_all_files_in_current_group()
+                    # 移動成功（move_to_next_middle_groupで既にcurrent_index=0に設定済み）
+                    pass
                 else:
                     # 次のグループがない場合は最初に戻る
                     self.current_index = 0
-            
-            self.show_current_image()
-            self.parent_window.right_list.setCurrentRow(self.current_index)
-            
-        elif event.key() in (QtCore.Qt.Key_Left, QtCore.Qt.Key_Up):
+                    self.show_current_image()
+                    self.parent_window.right_list.setCurrentRow(self.current_index)
+            else:
+                self.show_current_image()
+                self.parent_window.right_list.setCurrentRow(self.current_index)
+
+        elif event.key() == QtCore.Qt.Key_Left:
             # 前の画像
             self.current_index -= 1
-            
+
             if self.current_index < 0:
-                # 現在のグループの最初に到達 → 前のグループへ
+                # 最初の画像より前に行ったら前の中間グループへ
                 if self.move_to_prev_middle_group():
-                    files = self.get_all_files_in_current_group()
-                    self.current_index = len(files) - 1
+                    # 移動成功（move_to_prev_middle_groupで既にcurrent_index=0に設定済み）
+                    pass
                 else:
                     # 前のグループがない場合は最後に戻る
                     files = self.get_all_files_in_current_group()
                     self.current_index = len(files) - 1
-            
-            self.show_current_image()
-            self.parent_window.right_list.setCurrentRow(self.current_index)
+                    self.show_current_image()
+                    self.parent_window.right_list.setCurrentRow(self.current_index)
+            else:
+                self.show_current_image()
+                self.parent_window.right_list.setCurrentRow(self.current_index)
         else:
             super().keyPressEvent(event)
-    
+
     def move_to_next_middle_group(self):
         """次の中間グループに移動"""
         middle_list = self.parent_window.middle_list
         current_row = middle_list.currentRow()
-        
+
         if current_row < middle_list.count() - 1:
             # 次のグループがある
             middle_list.setCurrentRow(current_row + 1)
+            # フルスクリーン時は最初のファイルを表示
+            self.current_index = 0
+            self.show_current_image()
+            self.parent_window.right_list.setCurrentRow(self.current_index)
             return True
         else:
-            # 最後のグループ → 左リストの次に移動
+            # 最後の中間グループ → 次の左グループに移動
             return self.move_to_next_left_group()
-    
+
     def move_to_prev_middle_group(self):
         """前の中間グループに移動"""
         middle_list = self.parent_window.middle_list
         current_row = middle_list.currentRow()
-        
+
         if current_row > 0:
             # 前のグループがある
             middle_list.setCurrentRow(current_row - 1)
+            # フルスクリーン時は最初のファイルを表示
+            self.current_index = 0
+            self.show_current_image()
+            self.parent_window.right_list.setCurrentRow(self.current_index)
             return True
         else:
-            # 最初のグループ → 左リストの前に移動
+            # 最初の中間グループ → 前の左グループに移動
             return self.move_to_prev_left_group()
-    
+
     def move_to_next_left_group(self):
         """次の左グループに移動"""
         left_list = self.parent_window.left_list
         current_row = left_list.currentRow()
-        
+
         if current_row < left_list.count() - 1:
             # 次のグループがある
             left_list.setCurrentRow(current_row + 1)
             # 中リストの最初を選択
             if self.parent_window.middle_list.count() > 0:
                 self.parent_window.middle_list.setCurrentRow(0)
+            # フルスクリーン時は最初のファイルを表示
+            self.current_index = 0
+            self.show_current_image()
+            self.parent_window.right_list.setCurrentRow(self.current_index)
             return True
         return False
-    
+
     def move_to_prev_left_group(self):
         """前の左グループに移動"""
         left_list = self.parent_window.left_list
         current_row = left_list.currentRow()
-        
+
         if current_row > 0:
             # 前のグループがある
             left_list.setCurrentRow(current_row - 1)
-            # 中リストの最後を選択
+            # 中リストの最後を選択（前に戻るので最後から）
             middle_count = self.parent_window.middle_list.count()
             if middle_count > 0:
                 self.parent_window.middle_list.setCurrentRow(middle_count - 1)
+            # フルスクリーン時は最初のファイルを表示
+            self.current_index = 0
+            self.show_current_image()
+            self.parent_window.right_list.setCurrentRow(self.current_index)
             return True
         return False
 
@@ -335,21 +587,23 @@ class FullScreenViewer(QtWidgets.QWidget):
 
 class ImagePreviewWidget(QtWidgets.QLabel):
     """画像/動画プレビュー表示ウィジェット"""
-    
+
     # ダブルクリックシグナル
     doubleClicked = QtCore.Signal()
-    
+
     def __init__(self):
         super().__init__()
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMinimumSize(300, 300)
-        self.setStyleSheet("QLabel { background-color: #2b2b2b; color: #888; border: 1px solid #444; }")
+        self.setStyleSheet(
+            "QLabel { background-color: #2b2b2b; color: #888; border: 1px solid #444; }"
+        )
         self.setText("画像を選択してください\n\nダブルクリックでフルスクリーン表示")
         self.setScaledContents(False)
         self._current_pixmap = None
         self._current_movie = None
         self._current_filepath = None
-        
+
         # APNG再生用
         self._apng_frames = []
         self._apng_frame_index = 0
@@ -361,15 +615,15 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         if not filepath or not os.path.exists(filepath):
             self.clear_image()
             return
-        
+
         self._current_filepath = filepath
         ext = os.path.splitext(filepath)[1].lower()
-        
+
         # GIFアニメーション
-        if ext == '.gif':
+        if ext == ".gif":
             self._show_animated_gif(filepath)
         # PNG（APNGの可能性）
-        elif ext == '.png':
+        elif ext == ".png":
             if self._is_apng(filepath):
                 self._show_apng(filepath)
             else:
@@ -377,7 +631,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         else:
             # 静止画
             self._show_static_image(filepath)
-    
+
     def _show_static_image(self, filepath):
         """静止画を表示"""
         self._clear_movie()
@@ -392,7 +646,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         except Exception as e:
             self.setText(f"エラー: {e}")
             self._current_pixmap = None
-    
+
     def _show_animated_gif(self, filepath):
         """GIFアニメーションを表示"""
         self._clear_movie()
@@ -409,7 +663,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         except Exception as e:
             self.setText(f"エラー: {e}")
             self._current_movie = None
-    
+
     def _clear_movie(self):
         """ムービーをクリア"""
         if self._current_movie:
@@ -417,15 +671,14 @@ class ImagePreviewWidget(QtWidgets.QLabel):
             self._current_movie = None
             self.setMovie(None)
 
-
     def _is_apng(self, filepath):
         """PNGファイルがAPNGかチェック"""
         try:
             with Image.open(filepath) as img:
-                return getattr(img, 'is_animated', False)
+                return getattr(img, "is_animated", False)
         except:
             return False
-    
+
     def _show_apng(self, filepath):
         """APNGを読み込んで再生"""
         self._clear_movie()
@@ -433,60 +686,60 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         self._apng_timer.stop()
         self._apng_frames = []
         self._apng_frame_index = 0
-        
+
         try:
             img = Image.open(filepath)
-            
+
             # 全フレームを読み込み
-            for frame_index in range(getattr(img, 'n_frames', 1)):
+            for frame_index in range(getattr(img, "n_frames", 1)):
                 img.seek(frame_index)
-                frame = img.convert('RGBA')
-                
+                frame = img.convert("RGBA")
+
                 # PIL ImageをQPixmapに変換
-                data = frame.tobytes('raw', 'RGBA')
-                qimage = QtGui.QImage(data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888)
+                data = frame.tobytes("raw", "RGBA")
+                qimage = QtGui.QImage(
+                    data, frame.width, frame.height, QtGui.QImage.Format_RGBA8888
+                )
                 pixmap = QtGui.QPixmap.fromImage(qimage)
-                
+
                 # フレーム時間を取得（ミリ秒）
-                duration = img.info.get('duration', 100)
-                
-                self._apng_frames.append({
-                    'pixmap': pixmap,
-                    'duration': duration
-                })
-            
+                duration = img.info.get("duration", 100)
+
+                self._apng_frames.append({"pixmap": pixmap, "duration": duration})
+
             if self._apng_frames:
                 self._show_apng_frame(0)
                 if len(self._apng_frames) > 1:
-                    self._apng_timer.start(self._apng_frames[0]['duration'])
+                    self._apng_timer.start(self._apng_frames[0]["duration"])
             else:
                 self.setText("APNGを読み込めませんでした")
-                
+
         except Exception as e:
             self.setText(f"APNGエラー: {e}")
             self._apng_frames = []
-    
+
     def _show_apng_frame(self, index):
         """APNGの指定フレームを表示"""
         if 0 <= index < len(self._apng_frames):
             frame_data = self._apng_frames[index]
-            self._current_pixmap = frame_data['pixmap']
+            self._current_pixmap = frame_data["pixmap"]
             self._update_scaled_pixmap()
             self._apng_frame_index = index
-    
+
     def _next_apng_frame(self):
         """次のAPNGフレームを表示"""
         if not self._apng_frames:
             self._apng_timer.stop()
             return
-        
+
         self._apng_frame_index = (self._apng_frame_index + 1) % len(self._apng_frames)
         self._show_apng_frame(self._apng_frame_index)
-        
+
         # 次のフレームの時間でタイマーを再設定
         if self._apng_frames:
-            duration = self._apng_frames[self._apng_frame_index]['duration']
+            duration = self._apng_frames[self._apng_frame_index]["duration"]
             self._apng_timer.setInterval(duration)
+
     def clear_image(self):
         """画像をクリア"""
         self.setText("画像を選択してください\n\nダブルクリックでフルスクリーン表示")
@@ -500,9 +753,7 @@ class ImagePreviewWidget(QtWidgets.QLabel):
         """ウィンドウサイズに合わせて画像を拡大縮小"""
         if self._current_pixmap:
             scaled = self._current_pixmap.scaled(
-                self.size(), 
-                QtCore.Qt.KeepAspectRatio, 
-                QtCore.Qt.SmoothTransformation
+                self.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
             )
             self.setPixmap(scaled)
 
@@ -525,23 +776,30 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("画像グループナビゲーター")
         self.resize(1200, 700)
-        
-        # 設定ファイルのパス
-        self.config_path = Path.home() / ".image_group_navigator_config.json"
-        
+
+        # 設定ファイルのパス（iCloud Drive）
+        config_dir = Path(
+            "/Users/iru/Library/Mobile Documents/com~apple~CloudDocs/設定用ファイル"
+        )
+        config_dir.mkdir(parents=True, exist_ok=True)  # フォルダがなければ作成
+        self.config_path = config_dir / "image_group_navigator_config.json"
+
         # 初期化
         self.image_folder = ""
         self.group_dict = {}
         self.group_keys = []
         self.sort_order = "name"  # "name" または "date"
         self.fullscreen_viewer = None
-        
+
+        # ショートカットマネージャー
+        self.shortcut_manager = ShortcutManager()
+
         # UI構築
         self.setup_ui()
-        
+
         # 設定を読み込み
         self.load_settings()
-        
+
         # 初期フォルダがあればスキャン
         if self.image_folder and os.path.isdir(self.image_folder):
             self.scan_folder()
@@ -551,64 +809,70 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         main_layout = QtWidgets.QVBoxLayout(central)
-        
+
         # フォルダ選択部分
         folder_layout = QtWidgets.QHBoxLayout()
         folder_layout.addWidget(QtWidgets.QLabel("画像フォルダ:"))
         self.folder_input = DropPathLine()
         self.folder_input.returnPressed.connect(self.on_folder_changed)
         folder_layout.addWidget(self.folder_input, 1)
-        
+
         browse_btn = QtWidgets.QPushButton("参照...")
         browse_btn.clicked.connect(self.browse_folder)
         folder_layout.addWidget(browse_btn)
-        
+
         scan_btn = QtWidgets.QPushButton("スキャン")
         scan_btn.clicked.connect(self.scan_folder)
         folder_layout.addWidget(scan_btn)
-        
+
+        settings_btn = QtWidgets.QPushButton("ショートカット設定...")
+        settings_btn.clicked.connect(self.open_shortcut_settings)
+        settings_btn.setEnabled(False)
+        settings_btn.setToolTip("ショートカットキーは現在ハードコードされています")
+        folder_layout.addWidget(settings_btn)
+
         main_layout.addLayout(folder_layout)
-        
+
         # ソート順選択部分
         sort_layout = QtWidgets.QHBoxLayout()
         sort_layout.addWidget(QtWidgets.QLabel("ソート順:"))
-        
+
         self.sort_name_radio = QtWidgets.QRadioButton("ファイル名順")
         self.sort_name_radio.setChecked(True)
         self.sort_name_radio.toggled.connect(self.on_sort_changed)
         sort_layout.addWidget(self.sort_name_radio)
-        
+
         self.sort_date_radio = QtWidgets.QRadioButton("作成日順（新しい順）")
         self.sort_date_radio.toggled.connect(self.on_sort_changed)
         sort_layout.addWidget(self.sort_date_radio)
-        
+
         sort_layout.addStretch()
         main_layout.addLayout(sort_layout)
-        
+
         # メインエリア（3列リスト + プレビュー）
         content_layout = QtWidgets.QHBoxLayout()
-        
+
         # 左リスト（グループ先頭）
         left_widget = self.create_list_widget("グループ先頭", with_buttons=True)
-        self.left_list = left_widget['list']
-        self.left_up_btn = left_widget['up_btn']
-        self.left_down_btn = left_widget['down_btn']
-        content_layout.addWidget(left_widget['container'], 1)
-        
+        self.left_list = left_widget["list"]
+        self.left_up_btn = left_widget["up_btn"]
+        self.left_down_btn = left_widget["down_btn"]
+        content_layout.addWidget(left_widget["container"], 1)
+
         # 中リスト（グループ中間）
         middle_widget = self.create_list_widget("グループ中間", with_buttons=True)
-        self.middle_list = middle_widget['list']
-        self.middle_up_btn = middle_widget['up_btn']
-        self.middle_down_btn = middle_widget['down_btn']
-        content_layout.addWidget(middle_widget['container'], 1)
-        
+        self.middle_list = middle_widget["list"]
+        self.middle_up_btn = middle_widget["up_btn"]
+        self.middle_down_btn = middle_widget["down_btn"]
+        content_layout.addWidget(middle_widget["container"], 1)
+
         # 右リスト（ファイル名）
         right_widget = self.create_list_widget("ファイル名", with_buttons=True)
-        self.right_list = right_widget['list']
-        self.right_up_btn = right_widget['up_btn']
-        self.right_down_btn = right_widget['down_btn']
-        content_layout.addWidget(right_widget['container'], 1)
-        
+        self.right_list = right_widget["list"]
+        self.right_up_btn = right_widget["up_btn"]
+        self.right_down_btn = right_widget["down_btn"]
+        content_layout.addWidget(right_widget["container"], 1)
+
         # プレビュー
         preview_container = QtWidgets.QWidget()
         preview_layout = QtWidgets.QVBoxLayout(preview_container)
@@ -617,12 +881,12 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.preview_widget.doubleClicked.connect(self.show_fullscreen)
         preview_layout.addWidget(self.preview_widget, 1)
         content_layout.addWidget(preview_container, 1)
-        
+
         main_layout.addLayout(content_layout, 1)
-        
+
         # ステータスバー
         self.statusBar().showMessage("フォルダを選択してください")
-        
+
         # シグナル接続
         self.connect_signals()
 
@@ -631,15 +895,15 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        
+
         layout.addWidget(QtWidgets.QLabel(title))
-        
+
         list_widget = QtWidgets.QListWidget()
         list_widget.setFont(QtGui.QFont("Helvetica", 12))
         layout.addWidget(list_widget, 1)
-        
-        result = {'container': container, 'list': list_widget}
-        
+
+        result = {"container": container, "list": list_widget}
+
         if with_buttons:
             btn_layout = QtWidgets.QHBoxLayout()
             up_btn = QtWidgets.QPushButton("↑")
@@ -647,9 +911,9 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             btn_layout.addWidget(up_btn)
             btn_layout.addWidget(down_btn)
             layout.addLayout(btn_layout)
-            result['up_btn'] = up_btn
-            result['down_btn'] = down_btn
-        
+            result["up_btn"] = up_btn
+            result["down_btn"] = down_btn
+
         return result
 
     def connect_signals(self):
@@ -658,36 +922,63 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.left_list.itemSelectionChanged.connect(self.on_left_select)
         self.middle_list.itemSelectionChanged.connect(self.on_middle_select)
         self.right_list.itemSelectionChanged.connect(self.on_right_select)
-        
+
         # ダブルクリック
-        self.left_list.itemDoubleClicked.connect(lambda: self.open_current_image(self.left_list))
-        self.middle_list.itemDoubleClicked.connect(lambda: self.open_current_image(self.middle_list))
-        self.right_list.itemDoubleClicked.connect(lambda: self.open_current_image(self.right_list))
-        
+        self.left_list.itemDoubleClicked.connect(
+            lambda: self.open_current_image(self.left_list)
+        )
+        self.middle_list.itemDoubleClicked.connect(
+            lambda: self.open_current_image(self.middle_list)
+        )
+        self.right_list.itemDoubleClicked.connect(
+            lambda: self.open_current_image(self.right_list)
+        )
+
         # Enterキー
-        self.left_list.itemActivated.connect(lambda: self.open_current_image(self.left_list))
-        self.middle_list.itemActivated.connect(lambda: self.open_current_image(self.middle_list))
-        self.right_list.itemActivated.connect(lambda: self.open_current_image(self.right_list))
-        
+        self.left_list.itemActivated.connect(
+            lambda: self.open_current_image(self.left_list)
+        )
+        self.middle_list.itemActivated.connect(
+            lambda: self.open_current_image(self.middle_list)
+        )
+        self.right_list.itemActivated.connect(
+            lambda: self.open_current_image(self.right_list)
+        )
+
         # ↑↓ボタン
-        self.left_up_btn.clicked.connect(lambda: self.move_selection(self.left_list, -1))
-        self.left_down_btn.clicked.connect(lambda: self.move_selection(self.left_list, 1))
-        self.middle_up_btn.clicked.connect(lambda: self.move_selection(self.middle_list, -1))
-        self.middle_down_btn.clicked.connect(lambda: self.move_selection(self.middle_list, 1))
-        self.right_up_btn.clicked.connect(lambda: self.move_selection(self.right_list, -1))
-        self.right_down_btn.clicked.connect(lambda: self.move_selection(self.right_list, 1))
+        self.left_up_btn.clicked.connect(
+            lambda: self.move_selection(self.left_list, -1)
+        )
+        self.left_down_btn.clicked.connect(
+            lambda: self.move_selection(self.left_list, 1)
+        )
+        self.middle_up_btn.clicked.connect(
+            lambda: self.move_selection(self.middle_list, -1)
+        )
+        self.middle_down_btn.clicked.connect(
+            lambda: self.move_selection(self.middle_list, 1)
+        )
+        self.right_up_btn.clicked.connect(
+            lambda: self.move_selection(self.right_list, -1)
+        )
+        self.right_down_btn.clicked.connect(
+            lambda: self.move_selection(self.right_list, 1)
+        )
 
     def keyPressEvent(self, event):
         """キーボードショートカット"""
         focused = QtWidgets.QApplication.focusWidget()
-        
-        # 矢印キー（リストにフォーカスがある場合は標準動作）
+
+        # Enterキー（リストにフォーカスがある場合）
         if isinstance(focused, QtWidgets.QListWidget):
-            if event.key() == QtCore.Qt.Key_Return or event.key() == QtCore.Qt.Key_Enter:
+            if (
+                event.key() == QtCore.Qt.Key_Return
+                or event.key() == QtCore.Qt.Key_Enter
+            ):
                 self.open_current_image(focused)
                 event.accept()
                 return
-        
+
         super().keyPressEvent(event)
 
     def show_fullscreen(self):
@@ -700,9 +991,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
     def browse_folder(self):
         """フォルダ選択ダイアログ"""
         folder = QtWidgets.QFileDialog.getExistingDirectory(
-            self, 
-            "画像フォルダを選択",
-            self.folder_input.text() or str(Path.home())
+            self, "画像フォルダを選択", self.folder_input.text() or str(Path.home())
         )
         if folder:
             self.folder_input.setText(folder)
@@ -718,9 +1007,9 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             self.sort_order = "name"
         else:
             self.sort_order = "date"
-        
+
         self.save_settings()
-        
+
         # 再ソート
         if self.group_keys:
             self.refresh_left_list()
@@ -761,24 +1050,24 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         # 現在の選択を記憶
         current_item = self.left_list.currentItem()
         current_key = current_item.text() if current_item else None
-        
+
         # ソート
         if self.sort_order == "date":
             # 作成日順（新しい順）
             self.group_keys = sorted(
-                self.group_dict.keys(), 
+                self.group_dict.keys(),
                 key=lambda k: self.get_group_creation_time(k),
-                reverse=True
+                reverse=True,
             )
         else:
             # ファイル名順
             self.group_keys = sorted(self.group_dict.keys(), key=self.natural_key)
-        
+
         # 左リスト更新
         self.left_list.clear()
         for key in self.group_keys:
             self.left_list.addItem(key)
-        
+
         # 前回の選択を復元
         if current_key:
             items = self.left_list.findItems(current_key, QtCore.Qt.MatchExactly)
@@ -790,50 +1079,60 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
     def scan_folder(self):
         """フォルダをスキャンして画像を読み込み"""
         folder = self.folder_input.text()
-        
+
         if not folder:
-            QtWidgets.QMessageBox.warning(self, "エラー", "フォルダパスを入力してください")
+            QtWidgets.QMessageBox.warning(
+                self, "エラー", "フォルダパスを入力してください"
+            )
             return
-        
+
         if not os.path.isdir(folder):
-            QtWidgets.QMessageBox.warning(self, "エラー", f"フォルダが存在しません:\n{folder}")
+            QtWidgets.QMessageBox.warning(
+                self, "エラー", f"フォルダが存在しません:\n{folder}"
+            )
             return
-        
+
         self.image_folder = folder
         self.save_settings()
-        
+
         try:
             # ファイル一覧取得
             all_files = os.listdir(folder)
-            valid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+            valid_exts = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
             image_files = [f for f in all_files if f.lower().endswith(valid_exts)]
-            
+
             if not image_files:
-                QtWidgets.QMessageBox.information(self, "情報", "画像ファイルが見つかりませんでした")
+                QtWidgets.QMessageBox.information(
+                    self, "情報", "画像ファイルが見つかりませんでした"
+                )
                 return
-            
+
             # グループ化
             self.group_dict = {}
             for filename in image_files:
-                prefix = filename.split('_')[0]
+                prefix = filename.split("_")[0]
                 self.group_dict.setdefault(prefix, []).append(filename)
-            
+
             # グループ内は常に番号順にソート
             for key in self.group_dict.keys():
                 self.group_dict[key].sort(key=self.natural_key)
-            
+
             # 左リスト更新（ソート順に応じて）
             self.refresh_left_list()
-            
+
             # 中・右リストクリア
             self.middle_list.clear()
             self.right_list.clear()
             self.preview_widget.clear_image()
-            
-            self.statusBar().showMessage(f"{len(image_files)}個の画像ファイルを読み込みました")
-            
+
+            self.statusBar().showMessage(
+                f"{len(image_files)}個の画像ファイルを読み込みました"
+            )
+
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "エラー", f"フォルダのスキャンに失敗しました:\n{e}")
+            QtWidgets.QMessageBox.critical(
+                self, "エラー", f"フォルダのスキャンに失敗しました:\n{e}"
+            )
 
     def on_left_select(self):
         """左リスト選択時"""
@@ -843,12 +1142,12 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             self.right_list.clear()
             self.preview_widget.clear_image()
             return
-        
+
         group_key = item.text()
         filelist = self.group_dict.get(group_key, [])
         middle_groups = self.get_middle_groups(filelist)
         sorted_middle_keys = sorted(middle_groups.keys(), key=self.natural_key)
-        
+
         self.middle_list.clear()
         for k in sorted_middle_keys:
             # 中間グループの最初のファイルの作成日時を取得
@@ -858,15 +1157,15 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 display_text = f"{k}    {date_str}"
             else:
                 display_text = k
-            
+
             item = QtWidgets.QListWidgetItem(display_text)
             # データとして元のキーを保存
             item.setData(QtCore.Qt.UserRole, k)
             self.middle_list.addItem(item)
-        
+
         self.right_list.clear()
         self.preview_widget.clear_image()
-        
+
         # 中リストの最初を選択
         if sorted_middle_keys:
             self.middle_list.setCurrentRow(0)
@@ -875,17 +1174,17 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         """中リスト選択時"""
         left_item = self.left_list.currentItem()
         middle_item = self.middle_list.currentItem()
-        
+
         if not left_item or not middle_item:
             self.right_list.clear()
             self.preview_widget.clear_image()
             return
-        
+
         left_key = left_item.text()
         # UserRoleから元のキーを取得
         middle_key = middle_item.data(QtCore.Qt.UserRole)
         filelist = self.group_dict.get(left_key, [])
-        
+
         self.update_right_list(middle_key, filelist)
 
     def on_right_select(self):
@@ -900,15 +1199,15 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         """右リスト更新"""
         middle_groups = self.get_middle_groups(filelist)
         files = middle_groups.get(middle_key, [])
-        
+
         self.right_list.clear()
         for f in files:
-            parts = f.split('_', 2)
+            parts = f.split("_", 2)
             display_name = parts[2] if len(parts) > 2 else f
-            if '.' in display_name:
+            if "." in display_name:
                 display_name = os.path.splitext(display_name)[0]
             self.right_list.addItem(display_name)
-        
+
         # 右リストの最初を選択
         if files:
             self.right_list.setCurrentRow(0)
@@ -918,22 +1217,22 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         left_item = self.left_list.currentItem()
         middle_item = self.middle_list.currentItem()
         right_item = self.right_list.currentItem()
-        
+
         if not (left_item and middle_item and right_item):
             return None
-        
+
         left_key = left_item.text()
         # UserRoleから元のキーを取得
         middle_key = middle_item.data(QtCore.Qt.UserRole)
         right_idx = self.right_list.currentRow()
-        
+
         filelist = self.group_dict.get(left_key, [])
         middle_groups = self.get_middle_groups(filelist)
         files = middle_groups.get(middle_key, [])
-        
+
         if 0 <= right_idx < len(files):
             return os.path.join(self.image_folder, files[right_idx])
-        
+
         return None
 
     def open_current_image(self, list_widget):
@@ -957,41 +1256,118 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     files = middle_groups.get(middle_key, [])
                     if files:
                         filepath = os.path.join(self.image_folder, files[0])
-        
+
         if filepath and os.path.exists(filepath):
             try:
-                subprocess.run(['open', filepath], check=True)
+                subprocess.run(["open", filepath], check=True)
             except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "エラー", f"画像を開けませんでした:\n{e}")
+                QtWidgets.QMessageBox.critical(
+                    self, "エラー", f"画像を開けませんでした:\n{e}"
+                )
 
     def move_selection(self, list_widget, direction):
         """リストの選択を移動"""
         if list_widget.count() == 0:
             return
-        
+
         current = list_widget.currentRow()
         if current == -1:
             new_index = 0 if direction > 0 else list_widget.count() - 1
         else:
             new_index = current + direction
             new_index = max(0, min(new_index, list_widget.count() - 1))
-        
+
         list_widget.setCurrentRow(new_index)
+
+    def reveal_in_finder(self):
+        """現在のファイルをFinderで選択表示"""
+        filepath = self.get_current_filepath()
+        if not filepath or not os.path.exists(filepath):
+            self.statusBar().showMessage("ファイルが選択されていません")
+            return
+
+        try:
+            # AppleScriptでFinderを開いてファイルを選択
+            script = f'tell application "Finder" to reveal POSIX file "{filepath}"'
+            subprocess.run(["osascript", "-e", script], check=True)
+            # Finderを前面に
+            subprocess.run(
+                ["osascript", "-e", 'tell application "Finder" to activate'], check=True
+            )
+            self.statusBar().showMessage(f"Finderで表示: {os.path.basename(filepath)}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "エラー", f"Finderで開けませんでした:\n{e}"
+            )
+
+    def move_to_next_middle_group(self):
+        """次の中間グループに移動"""
+        if self.middle_list.count() == 0:
+            return
+
+        current_row = self.middle_list.currentRow()
+        if current_row < self.middle_list.count() - 1:
+            # 次のグループに移動
+            self.middle_list.setCurrentRow(current_row + 1)
+        else:
+            # 最後のグループ → 左リストの次に移動
+            self.move_to_next_left_group()
+
+    def move_to_prev_middle_group(self):
+        """前の中間グループに移動"""
+        if self.middle_list.count() == 0:
+            return
+
+        current_row = self.middle_list.currentRow()
+        if current_row > 0:
+            # 前のグループに移動
+            self.middle_list.setCurrentRow(current_row - 1)
+        else:
+            # 最初のグループ → 左リストの前に移動
+            self.move_to_prev_left_group()
+
+    def move_to_next_left_group(self):
+        """次の左グループに移動"""
+        if self.left_list.count() == 0:
+            return
+
+        current_row = self.left_list.currentRow()
+        if current_row < self.left_list.count() - 1:
+            # 次のグループに移動
+            self.left_list.setCurrentRow(current_row + 1)
+            # 中リストの最初を選択
+            if self.middle_list.count() > 0:
+                self.middle_list.setCurrentRow(0)
+
+    def move_to_prev_left_group(self):
+        """前の左グループに移動"""
+        if self.left_list.count() == 0:
+            return
+
+        current_row = self.left_list.currentRow()
+        if current_row > 0:
+            # 前のグループに移動
+            self.left_list.setCurrentRow(current_row - 1)
+            # 中リストの最後を選択
+            if self.middle_list.count() > 0:
+                self.middle_list.setCurrentRow(self.middle_list.count() - 1)
 
     @staticmethod
     def natural_key(s):
         """自然順ソート用キー"""
+
         def try_int(c):
             try:
                 return int(c)
             except:
                 return c
-        return [try_int(c) for c in re.split(r'(\d+)', s)]
+
+        return [try_int(c) for c in re.split(r"(\d+)", s)]
 
     @staticmethod
     def extract_middle_number(name):
         """ファイル名から中間番号を抽出"""
-        parts = name.split('_')
+        parts = name.split("_")
         if len(parts) >= 3:
             return parts[1]
         return ""
@@ -1008,32 +1384,46 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         """設定を読み込み"""
         if self.config_path.exists():
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
-                    self.image_folder = config.get('folder', '')
+                    self.image_folder = config.get("folder", "")
                     if self.image_folder:
                         self.folder_input.setText(self.image_folder)
-                    
+
                     # ソート順を復元
-                    self.sort_order = config.get('sort_order', 'name')
+                    self.sort_order = config.get("sort_order", "name")
                     if self.sort_order == "date":
                         self.sort_date_radio.setChecked(True)
                     else:
                         self.sort_name_radio.setChecked(True)
+
+                    # ショートカットキーを復元
+                    # self.shortcut_manager.load_from_config(config)
             except Exception as e:
                 print(f"設定の読み込みに失敗: {e}")
 
     def save_settings(self):
         """設定を保存"""
         try:
-            config = {
-                'folder': self.image_folder,
-                'sort_order': self.sort_order
-            }
-            with open(self.config_path, 'w', encoding='utf-8') as f:
+            config = {"folder": self.image_folder, "sort_order": self.sort_order}
+            # ショートカットキーを保存
+            # self.shortcut_manager.save_to_config(config)
+            with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"設定の保存に失敗: {e}")
+
+    def open_shortcut_settings(self):
+        """ショートカットキー設定ダイアログを開く"""
+        dialog = ShortcutSettingsDialog(self.shortcut_manager, self)
+        if dialog.exec() == QtWidgets.QDialog.Accepted:
+            # 新しいショートカット設定を適用
+            new_shortcuts = dialog.get_shortcuts()
+            for action, key_seq in new_shortcuts.items():
+                self.shortcut_manager.set_key_sequence(action, key_seq)
+            # 設定を保存
+            self.save_settings()
+            self.statusBar().showMessage("ショートカットキーを保存しました")
 
     def closeEvent(self, event):
         """ウィンドウを閉じる時"""
