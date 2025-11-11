@@ -450,19 +450,16 @@ class FullScreenViewer(QtWidgets.QWidget):
             event.accept()
             return
 
-        # グループ中間移動
-        if self.parent_window.shortcut_manager.matches_key_event(
-            "next_middle_group", event
-        ):
-            self.move_to_next_middle_group()
-            event.accept()
-            return
-        elif self.parent_window.shortcut_manager.matches_key_event(
-            "prev_middle_group", event
-        ):
-            self.move_to_prev_middle_group()
-            event.accept()
-            return
+        # グループ中間移動（Space/Shift+Space）- 直接キーコードでチェック
+        if event.key() == QtCore.Qt.Key_Space:
+            if event.modifiers() == QtCore.Qt.ShiftModifier:
+                self.move_to_prev_middle_group()
+                event.accept()
+                return
+            elif event.modifiers() == QtCore.Qt.NoModifier:
+                self.move_to_next_middle_group()
+                event.accept()
+                return
 
         # Escapeで閉じる
         if event.key() == QtCore.Qt.Key_Escape:
@@ -827,8 +824,6 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
         settings_btn = QtWidgets.QPushButton("ショートカット設定...")
         settings_btn.clicked.connect(self.open_shortcut_settings)
-        settings_btn.setEnabled(False)
-        settings_btn.setToolTip("ショートカットキーは現在ハードコードされています")
         folder_layout.addWidget(settings_btn)
 
         main_layout.addLayout(folder_layout)
@@ -1181,7 +1176,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             return
 
         left_key = left_item.text()
-        # UserRoleから元のキーを取得+
+        # UserRoleから元のキーを取得
         middle_key = middle_item.data(QtCore.Qt.UserRole)
         filelist = self.group_dict.get(left_key, [])
 
@@ -1398,7 +1393,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                         self.sort_name_radio.setChecked(True)
 
                     # ショートカットキーを復元
-                    # self.shortcut_manager.load_from_config(config)
+                    self.shortcut_manager.load_from_config(config)
             except Exception as e:
                 print(f"設定の読み込みに失敗: {e}")
 
@@ -1407,7 +1402,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         try:
             config = {"folder": self.image_folder, "sort_order": self.sort_order}
             # ショートカットキーを保存
-            # self.shortcut_manager.save_to_config(config)
+            self.shortcut_manager.save_to_config(config)
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
