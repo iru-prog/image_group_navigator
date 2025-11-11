@@ -907,9 +907,9 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         if with_buttons:
             btn_layout = QtWidgets.QHBoxLayout()
             up_btn = QtWidgets.QPushButton("↑")
-            up_btn.setStyleSheet("background-color: #4A90E2; color: white; font-weight: bold;")
+            up_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
             down_btn = QtWidgets.QPushButton("↓")
-            down_btn.setStyleSheet("background-color: #4A90E2; color: white; font-weight: bold;")
+            down_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
             btn_layout.addWidget(up_btn)
             btn_layout.addWidget(down_btn)
             layout.addLayout(btn_layout)
