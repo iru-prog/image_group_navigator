@@ -1100,6 +1100,16 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         settings_btn.setToolTip("ショートカットキーは現在ハードコードされています")
         folder_layout.addWidget(settings_btn)
 
+        # 先読み数設定
+        folder_layout.addWidget(QtWidgets.QLabel("先読み数:"))
+        self.preload_spinbox = QtWidgets.QSpinBox()
+        self.preload_spinbox.setMinimum(0)
+        self.preload_spinbox.setMaximum(10)
+        self.preload_spinbox.setValue(self.preload_count)
+        self.preload_spinbox.setToolTip("前後何枚の画像を先読みするか（0-10枚）")
+        self.preload_spinbox.valueChanged.connect(self.on_preload_count_changed)
+        folder_layout.addWidget(self.preload_spinbox)
+
         main_layout.addLayout(folder_layout)
 
         # ソート順選択部分
@@ -1282,6 +1292,16 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         # 再ソート
         if self.group_keys:
             self.refresh_left_list()
+
+    def on_preload_count_changed(self, value):
+        """先読み数変更時"""
+        self.preload_count = value
+        # プレビューウィジェットに反映
+        if hasattr(self, 'preview_widget'):
+            self.preview_widget.preload_count = value
+        # 設定を保存
+        self.save_settings()
+        self.statusBar().showMessage(f"先読み数を{value}枚に変更しました", 2000)
 
     def get_file_creation_time(self, filename):
         """ファイルの作成日時を取得"""
@@ -1669,6 +1689,9 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     # 先読み設定を復元
                     self.preload_count = config.get("preload_count", 2)
                     self.cache_size = config.get("cache_size", 5)
+                    # UIに反映
+                    if hasattr(self, 'preload_spinbox'):
+                        self.preload_spinbox.setValue(self.preload_count)
                     # プレビューウィジェットに設定を適用
                     if hasattr(self, 'preview_widget'):
                         self.preview_widget.preload_count = self.preload_count
