@@ -639,6 +639,15 @@ class FullScreenViewer(QtWidgets.QWidget):
             event.accept()
             return
 
+        # Finderで表示
+        if self.parent_window.shortcut_manager.matches_key_event(
+            "reveal_in_finder", event
+        ):
+            if self._current_filepath and os.path.exists(self._current_filepath):
+                subprocess.run(['open', '-R', self._current_filepath])
+            event.accept()
+            return
+
         # Escapeで閉じる
         if event.key() == QtCore.Qt.Key_Escape:
             self.close()
