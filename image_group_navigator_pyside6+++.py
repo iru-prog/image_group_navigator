@@ -143,6 +143,7 @@ class ShortcutManager:
     DEFAULT_SHORTCUTS = {
         "fullscreen_exit": "F",
         "reveal_in_finder": "C",
+        "move_to_trash": "Backspace",
         "next_middle_group": "Shift+Space",
         "prev_middle_group": "Space",
         "next_left_group": "Down",
@@ -153,6 +154,7 @@ class ShortcutManager:
     ACTION_NAMES = {
         "fullscreen_exit": "フルスクリーン解除",
         "reveal_in_finder": "Finderでファイルを表示",
+        "move_to_trash": "ゴミ箱に移動",
         "next_middle_group": "次の中間グループに移動",
         "prev_middle_group": "前の中間グループに移動",
         "next_left_group": "次の左グループに移動",
@@ -210,6 +212,10 @@ class ShortcutManager:
                 required_key = QtCore.Qt.Key_Left
             elif part == "Right":
                 required_key = QtCore.Qt.Key_Right
+            elif part == "Backspace":
+                required_key = QtCore.Qt.Key_Backspace
+            elif part == "Delete":
+                required_key = QtCore.Qt.Key_Delete
             elif len(part) == 1:
                 # 単一文字キー
                 required_key = ord(part.upper())
@@ -648,6 +654,14 @@ class FullScreenViewer(QtWidgets.QWidget):
             event.accept()
             return
 
+        # ゴミ箱に移動
+        if self.parent_window.shortcut_manager.matches_key_event(
+            "move_to_trash", event
+        ):
+            self._move_current_to_trash()
+            event.accept()
+            return
+
         # Escapeで閉じる
         if event.key() == QtCore.Qt.Key_Escape:
             self.close()
@@ -874,6 +888,69 @@ class FullScreenViewer(QtWidgets.QWidget):
         if hasattr(self, '_apng_timer'):
             self._apng_timer.stop()
         event.accept()
+
+    def _move_current_to_trash(self):
+        """現在の画像をゴミ箱に移動"""
+        if not self._current_filepath or not os.path.exists(self._current_filepath):
+            return
+
+        filepath = self._current_filepath
+        filename = os.path.basename(filepath)
+
+        # ファイルをゴミ箱に移動（macOS）
+        try:
+            result = subprocess.run(
+                ['osascript', '-e', f'tell application "Finder" to delete POSIX file "{filepath}"'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                self.info_label.setText(f"ゴミ箱への移動に失敗: {result.stderr}")
+                return
+        except Exception as e:
+            self.info_label.setText(f"エラー: {e}")
+            return
+
+        # 親ウィンドウのデータを更新
+        left_item = self.parent_window.left_list.currentItem()
+        middle_item = self.parent_window.middle_list.currentItem()
+        if not (left_item and middle_item):
+            self.close()
+            return
+
+        left_key = left_item.text()
+        middle_key = middle_item.data(QtCore.Qt.UserRole)
+
+        # group_dictから削除
+        if left_key in self.parent_window.group_dict:
+            filelist = self.parent_window.group_dict[left_key]
+            if filename in filelist:
+                filelist.remove(filename)
+
+        # 右リストを更新
+        files = self.get_all_files_in_current_group()
+
+        if len(files) == 0:
+            # グループ内に画像がなくなった場合
+            self.close()
+            return
+
+        # 現在のインデックスを調整
+        if self.current_index >= len(files):
+            self.current_index = len(files) - 1
+
+        # キャッシュから削除
+        if filepath in self.cache.cache:
+            del self.cache.cache[filepath]
+
+        # 右リストを再構築
+        self.parent_window.right_list.clear()
+        for f in files:
+            self.parent_window.right_list.addItem(f)
+        self.parent_window.right_list.setCurrentRow(self.current_index)
+
+        # 次の画像を表示
+        self.show_current_image()
 
 
 class ImagePreviewWidget(QtWidgets.QLabel):
