@@ -6,7 +6,8 @@ import json
 import queue
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
 
 from PySide6 import QtWidgets, QtCore, QtGui, QtMultimedia, QtMultimediaWidgets
 from PIL import Image
@@ -1286,6 +1287,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.preload_backward = 3  # 前方先読み数（デフォルト）
         self.preload_forward = 7  # 次方先読み数（デフォルト）
         self.cache_size = 5  # キャッシュサイズ（デフォルト）
+        self.date_filter_days = 0  # 日付フィルター（0=フィルターなし）
         self._first_show = True  # 初回表示フラグ
 
         # ショートカットマネージャー
@@ -1364,6 +1366,18 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         sort_layout.addWidget(self.sort_date_radio)
 
         sort_layout.addStretch()
+
+        # 日付フィルター
+        sort_layout.addWidget(QtWidgets.QLabel("日付フィルター: 過去"))
+        self.date_filter_spinbox = QtWidgets.QSpinBox()
+        self.date_filter_spinbox.setMinimum(0)
+        self.date_filter_spinbox.setMaximum(365)
+        self.date_filter_spinbox.setValue(self.date_filter_days)
+        self.date_filter_spinbox.setToolTip("過去N日以内の画像のみ表示（0=フィルターなし）")
+        self.date_filter_spinbox.valueChanged.connect(self.on_date_filter_changed)
+        sort_layout.addWidget(self.date_filter_spinbox)
+        sort_layout.addWidget(QtWidgets.QLabel("日以内（0=全て）"))
+
         main_layout.addLayout(sort_layout)
 
         # メインエリア（3列リスト + プレビュー）
@@ -1551,6 +1565,19 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.save_settings()
         self.statusBar().showMessage(f"次方先読み数を{value}枚に変更しました", 2000)
 
+    def on_date_filter_changed(self, value):
+        """日付フィルター変更時"""
+        self.date_filter_days = value
+        # 設定を保存
+        self.save_settings()
+        # 再スキャン
+        if self.image_folder and os.path.isdir(self.image_folder):
+            self.scan_folder()
+        if value == 0:
+            self.statusBar().showMessage("日付フィルターを解除しました", 2000)
+        else:
+            self.statusBar().showMessage(f"過去{value}日以内の画像を表示", 2000)
+
     def get_file_creation_time(self, filename):
         """ファイルの作成日時を取得"""
         try:
@@ -1560,11 +1587,17 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             return 0
 
     def get_group_creation_time(self, group_key):
-        """グループの代表ファイル（最初のファイル）の作成日時を取得"""
+        """グループ内で最も新しいファイルの作成日時を取得"""
         filelist = self.group_dict.get(group_key, [])
         if not filelist:
             return 0
-        return self.get_file_creation_time(filelist[0])
+        # グループ内の全ファイルの作成日時から最新のものを返す
+        newest_time = 0
+        for filename in filelist:
+            ctime = self.get_file_creation_time(filename)
+            if ctime > newest_time:
+                newest_time = ctime
+        return newest_time
 
     def format_creation_time(self, filename):
         """ファイルの作成日時をフォーマット"""
@@ -1581,6 +1614,20 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         middle_groups = self.get_middle_groups(filelist)
         files = middle_groups.get(middle_key, [])
         return files[0] if files else None
+
+    def get_middle_group_newest_time(self, left_key, middle_key):
+        """中間グループ内で最も新しいファイルの作成日時を取得"""
+        filelist = self.group_dict.get(left_key, [])
+        middle_groups = self.get_middle_groups(filelist)
+        files = middle_groups.get(middle_key, [])
+        if not files:
+            return 0
+        newest_time = 0
+        for filename in files:
+            ctime = self.get_file_creation_time(filename)
+            if ctime > newest_time:
+                newest_time = ctime
+        return newest_time
 
     def refresh_left_list(self):
         """左リストを再描画"""
@@ -1638,10 +1685,29 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             valid_exts = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
             image_files = [f for f in all_files if f.lower().endswith(valid_exts)]
 
+            # 日付フィルターを適用
+            if self.date_filter_days > 0:
+                cutoff_time = time.time() - (self.date_filter_days * 24 * 60 * 60)
+                filtered_files = []
+                for f in image_files:
+                    try:
+                        filepath = os.path.join(folder, f)
+                        ctime = os.path.getctime(filepath)
+                        if ctime >= cutoff_time:
+                            filtered_files.append(f)
+                    except:
+                        pass
+                image_files = filtered_files
+
             if not image_files:
-                QtWidgets.QMessageBox.information(
-                    self, "情報", "画像ファイルが見つかりませんでした"
-                )
+                if self.date_filter_days > 0:
+                    QtWidgets.QMessageBox.information(
+                        self, "情報", f"過去{self.date_filter_days}日以内の画像ファイルが見つかりませんでした"
+                    )
+                else:
+                    QtWidgets.QMessageBox.information(
+                        self, "情報", "画像ファイルが見つかりませんでした"
+                    )
                 return
 
             # グループ化
@@ -1720,7 +1786,18 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         group_key = item.text()
         filelist = self.group_dict.get(group_key, [])
         middle_groups = self.get_middle_groups(filelist)
-        sorted_middle_keys = sorted(middle_groups.keys(), key=self.natural_key)
+
+        # ソート順に応じて中間グループをソート
+        if self.sort_order == "date":
+            # 作成日順（新しい順）
+            sorted_middle_keys = sorted(
+                middle_groups.keys(),
+                key=lambda k: self.get_middle_group_newest_time(group_key, k),
+                reverse=True,
+            )
+        else:
+            # ファイル名順
+            sorted_middle_keys = sorted(middle_groups.keys(), key=self.natural_key)
 
         self.middle_list.clear()
         for k in sorted_middle_keys:
@@ -1975,11 +2052,14 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     self.preload_backward = config.get("preload_backward", 3)
                     self.preload_forward = config.get("preload_forward", 7)
                     self.cache_size = config.get("cache_size", 5)
+                    self.date_filter_days = config.get("date_filter_days", 0)
                     # UIに反映
                     if hasattr(self, 'preload_backward_spinbox'):
                         self.preload_backward_spinbox.setValue(self.preload_backward)
                     if hasattr(self, 'preload_forward_spinbox'):
                         self.preload_forward_spinbox.setValue(self.preload_forward)
+                    if hasattr(self, 'date_filter_spinbox'):
+                        self.date_filter_spinbox.setValue(self.date_filter_days)
                     # プレビューウィジェットに設定を適用
                     if hasattr(self, 'preview_widget'):
                         self.preview_widget.preload_backward = self.preload_backward
@@ -1999,6 +2079,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 "preload_backward": self.preload_backward,
                 "preload_forward": self.preload_forward,
                 "cache_size": self.cache_size,
+                "date_filter_days": self.date_filter_days,
             }
             # ショートカットキーを保存
             # self.shortcut_manager.save_to_config(config)
