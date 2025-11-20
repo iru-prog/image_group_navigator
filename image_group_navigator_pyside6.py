@@ -1605,8 +1605,30 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             return False
         try:
             with open(filepath, "rb") as f:
-                data = f.read()
-            return b'acTL' in data
+                # PNGシグネチャを確認
+                sig = f.read(8)
+                if sig != b"\x89PNG\r\n\x1a\n":
+                    return False
+
+                # チャンクを順番に読む
+                while True:
+                    length_bytes = f.read(4)
+                    if len(length_bytes) < 4:
+                        break
+
+                    length = int.from_bytes(length_bytes, "big")
+                    chunk_type = f.read(4)
+
+                    if chunk_type == b'acTL':
+                        return True  # APNG確定
+
+                    if chunk_type == b'IDAT':
+                        return False  # IDATより前にacTLがなければ通常PNG
+
+                    # チャンクデータ + CRC をスキップ
+                    f.seek(length + 4, 1)
+
+            return False
         except:
             return False
 
