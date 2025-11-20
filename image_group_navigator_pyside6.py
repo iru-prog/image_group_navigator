@@ -1588,7 +1588,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
     def on_apng_filter_changed(self, state):
         """APNGフィルター変更時"""
-        self.apng_filter_enabled = (state == QtCore.Qt.Checked)
+        self.apng_filter_enabled = self.apng_filter_checkbox.isChecked()
         # 設定を保存
         self.save_settings()
         # 再スキャン
