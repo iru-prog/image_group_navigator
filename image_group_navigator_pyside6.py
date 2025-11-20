@@ -1605,7 +1605,8 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             return False
         try:
             with Image.open(filepath) as img:
-                return getattr(img, "is_animated", False)
+                # フレーム数が2以上ならAPNG
+                return getattr(img, "n_frames", 1) > 1
         except:
             return False
 
