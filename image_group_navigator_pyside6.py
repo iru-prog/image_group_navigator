@@ -1600,13 +1600,13 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             self.statusBar().showMessage("APNGフィルターを解除しました", 2000)
 
     def is_apng_file(self, filepath):
-        """ファイルがAPNGかどうかを判定"""
+        """ファイルがAPNGかどうかを判定（acTLチャンクの存在で判定）"""
         if not filepath.lower().endswith('.png'):
             return False
         try:
-            with Image.open(filepath) as img:
-                # フレーム数が2以上ならAPNG
-                return getattr(img, "n_frames", 1) > 1
+            with open(filepath, "rb") as f:
+                data = f.read()
+            return b'acTL' in data
         except:
             return False
 
