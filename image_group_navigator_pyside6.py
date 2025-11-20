@@ -1004,7 +1004,9 @@ class ImagePreviewWidget(QtWidgets.QLabel):
                 # APNGフレーム
                 self._show_cached_apng(cached)
             else:
-                # 静止画
+                # 静止画 - APNGタイマーを停止
+                self._apng_timer.stop()
+                self._apng_frames = []
                 self._current_pixmap = cached
                 self._update_scaled_pixmap()
             # 先読みを開始
@@ -1030,6 +1032,9 @@ class ImagePreviewWidget(QtWidgets.QLabel):
     def _show_static_image(self, filepath):
         """静止画を表示"""
         self._clear_movie()
+        # APNGタイマーを停止
+        self._apng_timer.stop()
+        self._apng_frames = []
         try:
             pixmap = QtGui.QPixmap(filepath)
             if pixmap.isNull():
