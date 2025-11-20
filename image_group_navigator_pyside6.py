@@ -1288,6 +1288,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.preload_forward = 7  # 次方先読み数（デフォルト）
         self.cache_size = 5  # キャッシュサイズ（デフォルト）
         self.date_filter_days = 0  # 日付フィルター（0=フィルターなし）
+        self.apng_filter_enabled = False  # APNGフィルター
         self._first_show = True  # 初回表示フラグ
 
         # ショートカットマネージャー
@@ -1377,6 +1378,13 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.date_filter_spinbox.valueChanged.connect(self.on_date_filter_changed)
         sort_layout.addWidget(self.date_filter_spinbox)
         sort_layout.addWidget(QtWidgets.QLabel("日以内（0=全て）"))
+
+        # APNGフィルター
+        self.apng_filter_checkbox = QtWidgets.QCheckBox("APNGのみ")
+        self.apng_filter_checkbox.setChecked(self.apng_filter_enabled)
+        self.apng_filter_checkbox.setToolTip("APNGファイルのみ表示")
+        self.apng_filter_checkbox.stateChanged.connect(self.on_apng_filter_changed)
+        sort_layout.addWidget(self.apng_filter_checkbox)
 
         main_layout.addLayout(sort_layout)
 
@@ -1578,6 +1586,29 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         else:
             self.statusBar().showMessage(f"過去{value}日以内の画像を表示", 2000)
 
+    def on_apng_filter_changed(self, state):
+        """APNGフィルター変更時"""
+        self.apng_filter_enabled = (state == QtCore.Qt.Checked)
+        # 設定を保存
+        self.save_settings()
+        # 再スキャン
+        if self.image_folder and os.path.isdir(self.image_folder):
+            self.scan_folder()
+        if self.apng_filter_enabled:
+            self.statusBar().showMessage("APNGのみ表示", 2000)
+        else:
+            self.statusBar().showMessage("APNGフィルターを解除しました", 2000)
+
+    def is_apng_file(self, filepath):
+        """ファイルがAPNGかどうかを判定"""
+        if not filepath.lower().endswith('.png'):
+            return False
+        try:
+            with Image.open(filepath) as img:
+                return getattr(img, "is_animated", False)
+        except:
+            return False
+
     def get_file_creation_time(self, filename):
         """ファイルの作成日時を取得"""
         try:
@@ -1699,8 +1730,21 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                         pass
                 image_files = filtered_files
 
+            # APNGフィルターを適用
+            if self.apng_filter_enabled:
+                filtered_files = []
+                for f in image_files:
+                    filepath = os.path.join(folder, f)
+                    if self.is_apng_file(filepath):
+                        filtered_files.append(f)
+                image_files = filtered_files
+
             if not image_files:
-                if self.date_filter_days > 0:
+                if self.apng_filter_enabled:
+                    QtWidgets.QMessageBox.information(
+                        self, "情報", "APNGファイルが見つかりませんでした"
+                    )
+                elif self.date_filter_days > 0:
                     QtWidgets.QMessageBox.information(
                         self, "情報", f"過去{self.date_filter_days}日以内の画像ファイルが見つかりませんでした"
                     )
@@ -2053,6 +2097,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                     self.preload_forward = config.get("preload_forward", 7)
                     self.cache_size = config.get("cache_size", 5)
                     self.date_filter_days = config.get("date_filter_days", 0)
+                    self.apng_filter_enabled = config.get("apng_filter_enabled", False)
                     # UIに反映
                     if hasattr(self, 'preload_backward_spinbox'):
                         self.preload_backward_spinbox.setValue(self.preload_backward)
@@ -2060,6 +2105,8 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                         self.preload_forward_spinbox.setValue(self.preload_forward)
                     if hasattr(self, 'date_filter_spinbox'):
                         self.date_filter_spinbox.setValue(self.date_filter_days)
+                    if hasattr(self, 'apng_filter_checkbox'):
+                        self.apng_filter_checkbox.setChecked(self.apng_filter_enabled)
                     # プレビューウィジェットに設定を適用
                     if hasattr(self, 'preview_widget'):
                         self.preview_widget.preload_backward = self.preload_backward
@@ -2080,6 +2127,7 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 "preload_forward": self.preload_forward,
                 "cache_size": self.cache_size,
                 "date_filter_days": self.date_filter_days,
+                "apng_filter_enabled": self.apng_filter_enabled,
             }
             # ショートカットキーを保存
             # self.shortcut_manager.save_to_config(config)
