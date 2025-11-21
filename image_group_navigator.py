@@ -1449,15 +1449,20 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         sort_layout.addStretch()
 
         # 日付フィルター
-        sort_layout.addWidget(QtWidgets.QLabel("日付フィルター: 過去"))
+        self.date_filter_checkbox = QtWidgets.QCheckBox("日付フィルター: 過去")
+        self.date_filter_checkbox.setChecked(self.date_filter_days > 0)
+        self.date_filter_checkbox.stateChanged.connect(self.on_date_filter_checkbox_changed)
+        sort_layout.addWidget(self.date_filter_checkbox)
+
         self.date_filter_spinbox = QtWidgets.QSpinBox()
-        self.date_filter_spinbox.setMinimum(0)
+        self.date_filter_spinbox.setMinimum(1)
         self.date_filter_spinbox.setMaximum(365)
-        self.date_filter_spinbox.setValue(self.date_filter_days)
-        self.date_filter_spinbox.setToolTip("過去N日以内の画像のみ表示（0=フィルターなし）")
-        self.date_filter_spinbox.valueChanged.connect(self.on_date_filter_changed)
+        self.date_filter_spinbox.setValue(max(1, self.date_filter_days))
+        self.date_filter_spinbox.setToolTip("過去N日以内の画像のみ表示")
+        self.date_filter_spinbox.valueChanged.connect(self.on_date_filter_spinbox_changed)
+        self.date_filter_spinbox.setEnabled(self.date_filter_days > 0)
         sort_layout.addWidget(self.date_filter_spinbox)
-        sort_layout.addWidget(QtWidgets.QLabel("日以内（0=全て）"))
+        sort_layout.addWidget(QtWidgets.QLabel("日以内"))
 
         # APNGフィルター
         self.apng_filter_checkbox = QtWidgets.QCheckBox("APNGのみ")
@@ -1666,17 +1671,35 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.save_settings()
         self.statusBar().showMessage(f"次方先読み数を{value}枚に変更しました", 2000)
 
-    def on_date_filter_changed(self, value):
-        """日付フィルター変更時"""
-        self.date_filter_days = value
+    def on_date_filter_checkbox_changed(self, state):
+        """日付フィルターチェックボックス変更時"""
+        is_checked = self.date_filter_checkbox.isChecked()
+        self.date_filter_spinbox.setEnabled(is_checked)
+
+        if is_checked:
+            # チェックON: スピンボックスの値を使用
+            self.date_filter_days = self.date_filter_spinbox.value()
+            self.statusBar().showMessage(f"過去{self.date_filter_days}日以内の画像を表示", 2000)
+        else:
+            # チェックOFF: フィルターなし
+            self.date_filter_days = 0
+            self.statusBar().showMessage("日付フィルターを解除しました", 2000)
+
         # 設定を保存
         self.save_settings()
         # 再スキャン
         if self.image_folder and os.path.isdir(self.image_folder):
             self.scan_folder()
-        if value == 0:
-            self.statusBar().showMessage("日付フィルターを解除しました", 2000)
-        else:
+
+    def on_date_filter_spinbox_changed(self, value):
+        """日付フィルタースピンボックス変更時"""
+        if self.date_filter_checkbox.isChecked():
+            self.date_filter_days = value
+            # 設定を保存
+            self.save_settings()
+            # 再スキャン
+            if self.image_folder and os.path.isdir(self.image_folder):
+                self.scan_folder()
             self.statusBar().showMessage(f"過去{value}日以内の画像を表示", 2000)
 
     def on_apng_filter_changed(self, state):
@@ -2281,8 +2304,11 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                         self.preload_backward_spinbox.setValue(self.preload_backward)
                     if hasattr(self, 'preload_forward_spinbox'):
                         self.preload_forward_spinbox.setValue(self.preload_forward)
+                    if hasattr(self, 'date_filter_checkbox'):
+                        self.date_filter_checkbox.setChecked(self.date_filter_days > 0)
                     if hasattr(self, 'date_filter_spinbox'):
-                        self.date_filter_spinbox.setValue(self.date_filter_days)
+                        self.date_filter_spinbox.setValue(max(1, self.date_filter_days))
+                        self.date_filter_spinbox.setEnabled(self.date_filter_days > 0)
                     if hasattr(self, 'apng_filter_checkbox'):
                         self.apng_filter_checkbox.setChecked(self.apng_filter_enabled)
                     # プレビューウィジェットに設定を適用
