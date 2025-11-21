@@ -1588,8 +1588,10 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.middle_list.itemSelectionChanged.connect(self.on_middle_select)
         self.right_list.itemSelectionChanged.connect(self.on_right_select)
 
-        # ダブルクリック - 右リスト（ファイル）のみフルスクリーン表示
-        # 左・中リストはグループ選択なので外部アプリも開かない
+        # ダブルクリック - 各リストでフルスクリーン表示
+        # 左・中リストは選択グループの最初のファイルを開く
+        self.left_list.itemDoubleClicked.connect(self.on_left_double_click)
+        self.middle_list.itemDoubleClicked.connect(self.on_middle_double_click)
         self.right_list.itemDoubleClicked.connect(self.show_fullscreen)
 
         # ↑↓ボタン
@@ -1683,6 +1685,23 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 return
 
         super().keyPressEvent(event)
+
+    def on_left_double_click(self):
+        """左リストダブルクリック - そのグループの最初のファイルをフルスクリーンで開く"""
+        # 選択変更が完了するまで少し待つ（itemSelectionChangedが先に発火する）
+        QtCore.QTimer.singleShot(100, self._open_first_file_in_group)
+
+    def on_middle_double_click(self):
+        """中リストダブルクリック - そのグループの最初のファイルをフルスクリーンで開く"""
+        # 選択変更が完了するまで少し待つ
+        QtCore.QTimer.singleShot(100, self._open_first_file_in_group)
+
+    def _open_first_file_in_group(self):
+        """現在選択されているグループの最初のファイルを開く"""
+        if self.right_list.count() > 0:
+            self.right_list.setCurrentRow(0)
+            # 右リストの選択が完了するまで少し待つ
+            QtCore.QTimer.singleShot(50, self.show_fullscreen)
 
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
