@@ -1676,26 +1676,37 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
-        # 左リストと中リストが選択されているか確認
-        if not self.left_list.currentItem() or not self.middle_list.currentItem():
-            return
-
-        # 右リストが空の場合は何もしない
-        if self.right_list.count() == 0:
-            return
-
-        # 右リストが選択されていない場合は最初のファイルを表示
-        current_index = self.right_list.currentRow()
-        if current_index < 0:
-            current_index = 0
-            self.right_list.setCurrentRow(current_index)
-
         try:
+            print(f"DEBUG: show_fullscreen called")
+            # 左リストと中リストが選択されているか確認
+            if not self.left_list.currentItem() or not self.middle_list.currentItem():
+                print(f"DEBUG: left or middle list not selected")
+                return
+
+            # 右リストが空の場合は何もしない
+            if self.right_list.count() == 0:
+                print(f"DEBUG: right list is empty")
+                return
+
+            # 右リストが選択されていない場合は最初のファイルを表示
+            current_index = self.right_list.currentRow()
+            print(f"DEBUG: current_index = {current_index}")
+            if current_index < 0:
+                current_index = 0
+                self.right_list.setCurrentRow(current_index)
+                print(f"DEBUG: set current_index to 0")
+
+            print(f"DEBUG: Creating FullScreenViewer with index {current_index}")
             self.fullscreen_viewer = FullScreenViewer(self, current_index)
+            print(f"DEBUG: FullScreenViewer created, showing...")
             self.fullscreen_viewer.show()
+            print(f"DEBUG: FullScreenViewer shown")
         except Exception as e:
+            import traceback
+            error_msg = f"フルスクリーン表示に失敗しました:\n{e}\n\n{traceback.format_exc()}"
+            print(f"ERROR: {error_msg}")
             QtWidgets.QMessageBox.critical(
-                self, "エラー", f"フルスクリーン表示に失敗しました:\n{e}"
+                self, "エラー", error_msg
             )
 
     def browse_folder(self):
