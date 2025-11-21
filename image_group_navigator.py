@@ -390,6 +390,27 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.info_label.raise_()  # 最前面に
         self._info_visible = True  # 情報表示の表示/非表示状態
 
+        # グループ名表示ラベル（画面中央）
+        self.group_label = QtWidgets.QLabel(self)
+        self.group_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.group_label.setStyleSheet(
+            "color: white; background-color: transparent; padding: 20px; font-size: 48px; font-weight: bold;"
+        )
+        self.group_label.hide()  # 初期状態は非表示
+        self.group_label.raise_()  # 最前面に
+
+        # グループ名表示ラベル用の影効果
+        group_shadow = QtWidgets.QGraphicsDropShadowEffect(self)
+        group_shadow.setBlurRadius(20)
+        group_shadow.setColor(QtGui.QColor(0, 0, 0, 255))
+        group_shadow.setOffset(0, 0)
+        self.group_label.setGraphicsEffect(group_shadow)
+
+        # グループ名表示タイマー（3秒後に自動で消える）
+        self._group_label_timer = QtCore.QTimer(self)
+        self._group_label_timer.timeout.connect(self._hide_group_label)
+        self._group_label_timer.setSingleShot(True)
+
         self._current_pixmap = None
 
         # APNG再生用
@@ -770,6 +791,8 @@ class FullScreenViewer(QtWidgets.QWidget):
             self.current_index = 0
             self.show_current_image()
             self.parent_window.right_list.setCurrentRow(self.current_index)
+            # グループ名を表示
+            self._show_group_label(left_list.item(current_row + 1).text())
             return True
         return False
 
@@ -789,6 +812,8 @@ class FullScreenViewer(QtWidgets.QWidget):
             self.current_index = 0
             self.show_current_image()
             self.parent_window.right_list.setCurrentRow(self.current_index)
+            # グループ名を表示
+            self._show_group_label(left_list.item(current_row - 1).text())
             return True
         return False
 
@@ -991,6 +1016,17 @@ class FullScreenViewer(QtWidgets.QWidget):
             self.info_label.show()
         else:
             self.info_label.hide()
+
+    def _show_group_label(self, group_name):
+        """グループ名を画面中央に表示"""
+        self.group_label.setText(group_name)
+        self.group_label.setGeometry(0, 0, self.width(), self.height())
+        self.group_label.show()
+        self._group_label_timer.start(3000)  # 3秒後に消える
+
+    def _hide_group_label(self):
+        """グループ名を非表示"""
+        self.group_label.hide()
 
 
 class ImagePreviewWidget(QtWidgets.QLabel):
@@ -1463,6 +1499,19 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.preview_widget = ImagePreviewWidget(parent_window=self, cache_size=self.cache_size)
         self.preview_widget.doubleClicked.connect(self.show_fullscreen)
         preview_layout.addWidget(self.preview_widget, 1)
+
+        # 操作ボタン
+        button_layout = QtWidgets.QHBoxLayout()
+        self.reveal_finder_btn = QtWidgets.QPushButton("Finderで表示 (C)")
+        self.reveal_finder_btn.clicked.connect(self.reveal_in_finder)
+        button_layout.addWidget(self.reveal_finder_btn)
+
+        self.delete_btn = QtWidgets.QPushButton("削除 (Backspace)")
+        self.delete_btn.clicked.connect(self.move_current_to_trash)
+        button_layout.addWidget(self.delete_btn)
+
+        preview_layout.addLayout(button_layout)
+
         content_layout.addWidget(preview_container, 1)
 
         main_layout.addLayout(content_layout, 1)
@@ -1506,27 +1555,15 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.middle_list.itemSelectionChanged.connect(self.on_middle_select)
         self.right_list.itemSelectionChanged.connect(self.on_right_select)
 
-        # ダブルクリック
-        self.left_list.itemDoubleClicked.connect(
-            lambda: self.open_current_image(self.left_list)
-        )
-        self.middle_list.itemDoubleClicked.connect(
-            lambda: self.open_current_image(self.middle_list)
-        )
-        self.right_list.itemDoubleClicked.connect(
-            lambda: self.open_current_image(self.right_list)
-        )
+        # ダブルクリック - フルスクリーン表示
+        self.left_list.itemDoubleClicked.connect(self.show_fullscreen)
+        self.middle_list.itemDoubleClicked.connect(self.show_fullscreen)
+        self.right_list.itemDoubleClicked.connect(self.show_fullscreen)
 
-        # Enterキー
-        self.left_list.itemActivated.connect(
-            lambda: self.open_current_image(self.left_list)
-        )
-        self.middle_list.itemActivated.connect(
-            lambda: self.open_current_image(self.middle_list)
-        )
-        self.right_list.itemActivated.connect(
-            lambda: self.open_current_image(self.right_list)
-        )
+        # Enterキー - フルスクリーン表示
+        self.left_list.itemActivated.connect(self.show_fullscreen)
+        self.middle_list.itemActivated.connect(self.show_fullscreen)
+        self.right_list.itemActivated.connect(self.show_fullscreen)
 
         # ↑↓ボタン
         self.left_up_btn.clicked.connect(
@@ -1552,13 +1589,25 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         """キーボードショートカット"""
         focused = QtWidgets.QApplication.focusWidget()
 
+        # Cキー: Finderで表示
+        if event.key() == QtCore.Qt.Key_C and not event.modifiers():
+            self.reveal_in_finder()
+            event.accept()
+            return
+
+        # Backspaceキー: 削除
+        if event.key() == QtCore.Qt.Key_Backspace:
+            self.move_current_to_trash()
+            event.accept()
+            return
+
         # Enterキー（リストにフォーカスがある場合）
         if isinstance(focused, QtWidgets.QListWidget):
             if (
                 event.key() == QtCore.Qt.Key_Return
                 or event.key() == QtCore.Qt.Key_Enter
             ):
-                self.open_current_image(focused)
+                self.show_fullscreen()  # フルスクリーンで表示
                 event.accept()
                 return
 
@@ -2061,6 +2110,68 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self, "エラー", f"Finderで開けませんでした:\n{e}"
             )
+
+    def move_current_to_trash(self):
+        """現在選択中のファイルをゴミ箱に移動"""
+        filepath = self.get_current_filepath()
+        if not filepath or not os.path.exists(filepath):
+            self.statusBar().showMessage("ファイルが選択されていません")
+            return
+
+        filename = os.path.basename(filepath)
+
+        # 確認ダイアログ
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "確認",
+            f"{filename} をゴミ箱に移動しますか？",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        # ファイルをゴミ箱に移動（macOS）
+        try:
+            result = subprocess.run(
+                ['osascript', '-e', f'tell application "Finder" to delete POSIX file "{filepath}"'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                QtWidgets.QMessageBox.critical(
+                    self, "エラー", f"ゴミ箱への移動に失敗: {result.stderr}"
+                )
+                return
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "エラー", f"エラー: {e}"
+            )
+            return
+
+        # データ構造を更新
+        left_item = self.left_list.currentItem()
+        middle_item = self.middle_list.currentItem()
+        if not (left_item and middle_item):
+            return
+
+        left_key = left_item.text()
+        middle_key = middle_item.data(QtCore.Qt.UserRole)
+
+        # group_dictから削除
+        if left_key in self.group_dict:
+            filelist = self.group_dict[left_key]
+            if filename in filelist:
+                filelist.remove(filename)
+
+        # 右リストを更新
+        self.update_right_list(middle_key, self.group_dict.get(left_key, []))
+
+        # プレビューをクリア
+        self.preview_widget.clear_image()
+
+        self.statusBar().showMessage(f"{filename} をゴミ箱に移動しました")
 
     def move_to_next_middle_group(self):
         """次の中間グループに移動"""
