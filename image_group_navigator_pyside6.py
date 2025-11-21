@@ -374,17 +374,17 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.info_label = QtWidgets.QLabel(self)
         self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         self.info_label.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 180); padding: 12px; font-size: 15px;"
+            "color: white; padding: 4px; font-size: 15px;"
         )
         # 固定の最小サイズを設定（2行分の高さを確保）
         self.info_label.setMinimumHeight(70)
         self.info_label.setMinimumWidth(400)
 
-        # 影効果を追加
+        # 影効果を追加（黒背景でも白背景でも見えるように）
         shadow = QtWidgets.QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(8)
-        shadow.setColor(QtGui.QColor(0, 0, 0, 200))
-        shadow.setOffset(2, 2)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QtGui.QColor(0, 0, 0, 255))
+        shadow.setOffset(0, 0)
         self.info_label.setGraphicsEffect(shadow)
 
         self.info_label.raise_()  # 最前面に
