@@ -1563,13 +1563,13 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.right_list.itemSelectionChanged.connect(self.on_right_select)
 
         # ダブルクリック - フルスクリーン表示
-        self.left_list.itemDoubleClicked.connect(self.show_fullscreen)
-        self.middle_list.itemDoubleClicked.connect(self.show_fullscreen)
+        self.left_list.itemDoubleClicked.connect(self.on_list_double_clicked)
+        self.middle_list.itemDoubleClicked.connect(self.on_list_double_clicked)
         self.right_list.itemDoubleClicked.connect(self.show_fullscreen)
 
         # Enterキー - フルスクリーン表示
-        self.left_list.itemActivated.connect(self.show_fullscreen)
-        self.middle_list.itemActivated.connect(self.show_fullscreen)
+        self.left_list.itemActivated.connect(self.on_list_double_clicked)
+        self.middle_list.itemActivated.connect(self.on_list_double_clicked)
         self.right_list.itemActivated.connect(self.show_fullscreen)
 
         # ↑↓ボタン
@@ -1664,8 +1664,20 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
         super().keyPressEvent(event)
 
+    def on_list_double_clicked(self):
+        """左リストまたは中リストがダブルクリックされた時"""
+        # 右リストの最初のファイルを選択してからフルスクリーンを開く
+        if self.right_list.count() > 0:
+            self.right_list.setCurrentRow(0)
+            # 少し待ってから開く（右リストが更新されるまで）
+            QtCore.QTimer.singleShot(50, self.show_fullscreen)
+
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
+        # 左リストと中リストが選択されているか確認
+        if not self.left_list.currentItem() or not self.middle_list.currentItem():
+            return
+
         # 右リストが空の場合は何もしない
         if self.right_list.count() == 0:
             return
@@ -1676,8 +1688,13 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             current_index = 0
             self.right_list.setCurrentRow(current_index)
 
-        self.fullscreen_viewer = FullScreenViewer(self, current_index)
-        self.fullscreen_viewer.show()
+        try:
+            self.fullscreen_viewer = FullScreenViewer(self, current_index)
+            self.fullscreen_viewer.show()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "エラー", f"フルスクリーン表示に失敗しました:\n{e}"
+            )
 
     def browse_folder(self):
         """フォルダ選択ダイアログ"""
