@@ -388,6 +388,7 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.info_label.setGraphicsEffect(shadow)
 
         self.info_label.raise_()  # 最前面に
+        self._info_visible = True  # 情報表示の表示/非表示状態
 
         self._current_pixmap = None
 
@@ -660,6 +661,12 @@ class FullScreenViewer(QtWidgets.QWidget):
             "move_to_trash", event
         ):
             self._move_current_to_trash()
+            event.accept()
+            return
+
+        # 情報表示切り替え（Iキー）
+        if event.key() == QtCore.Qt.Key_I:
+            self._toggle_info_display()
             event.accept()
             return
 
@@ -952,6 +959,14 @@ class FullScreenViewer(QtWidgets.QWidget):
 
         # 次の画像を表示
         self.show_current_image()
+
+    def _toggle_info_display(self):
+        """情報表示の表示/非表示を切り替え"""
+        self._info_visible = not self._info_visible
+        if self._info_visible:
+            self.info_label.show()
+        else:
+            self.info_label.hide()
 
 
 class ImagePreviewWidget(QtWidgets.QLabel):
