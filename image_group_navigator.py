@@ -1606,6 +1606,47 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             event.accept()
             return
 
+        # 左右キー: 右リストのファイル間移動
+        if event.key() == QtCore.Qt.Key_Right:
+            current = self.right_list.currentRow()
+            if current < self.right_list.count() - 1:
+                self.right_list.setCurrentRow(current + 1)
+            else:
+                # 最後のファイル → 次の中間グループ
+                self.move_to_next_middle_group()
+            event.accept()
+            return
+        elif event.key() == QtCore.Qt.Key_Left:
+            current = self.right_list.currentRow()
+            if current > 0:
+                self.right_list.setCurrentRow(current - 1)
+            else:
+                # 最初のファイル → 前の中間グループ
+                self.move_to_prev_middle_group()
+            event.accept()
+            return
+
+        # スペースキー: 中間グループ移動
+        if event.key() == QtCore.Qt.Key_Space:
+            if event.modifiers() & QtCore.Qt.ShiftModifier:
+                # Shift+Space: 次の中間グループ
+                self.move_to_next_middle_group()
+            else:
+                # Space: 前の中間グループ
+                self.move_to_prev_middle_group()
+            event.accept()
+            return
+
+        # ↑↓キー: 左グループ移動
+        if event.key() == QtCore.Qt.Key_Down:
+            self.move_to_next_left_group()
+            event.accept()
+            return
+        elif event.key() == QtCore.Qt.Key_Up:
+            self.move_to_prev_left_group()
+            event.accept()
+            return
+
         # Enterキー（リストにフォーカスがある場合）
         if isinstance(focused, QtWidgets.QListWidget):
             if (
