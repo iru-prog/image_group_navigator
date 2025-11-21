@@ -1666,10 +1666,18 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
+        # 右リストが空の場合は何もしない
+        if self.right_list.count() == 0:
+            return
+
+        # 右リストが選択されていない場合は最初のファイルを表示
         current_index = self.right_list.currentRow()
-        if current_index >= 0:
-            self.fullscreen_viewer = FullScreenViewer(self, current_index)
-            self.fullscreen_viewer.show()
+        if current_index < 0:
+            current_index = 0
+            self.right_list.setCurrentRow(current_index)
+
+        self.fullscreen_viewer = FullScreenViewer(self, current_index)
+        self.fullscreen_viewer.show()
 
     def browse_folder(self):
         """フォルダ選択ダイアログ"""
