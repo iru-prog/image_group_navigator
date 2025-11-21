@@ -767,8 +767,9 @@ class FullScreenViewer(QtWidgets.QWidget):
         if current_row > 0:
             # 前のグループがある
             middle_list.setCurrentRow(current_row - 1)
-            # フルスクリーン時は最初のファイルを表示
-            self.current_index = 0
+            # フルスクリーン時は最後のファイルを表示
+            files = self.get_all_files_in_current_group()
+            self.current_index = len(files) - 1 if files else 0
             self.show_current_image()
             self.parent_window.right_list.setCurrentRow(self.current_index)
             return True
@@ -808,8 +809,9 @@ class FullScreenViewer(QtWidgets.QWidget):
             middle_count = self.parent_window.middle_list.count()
             if middle_count > 0:
                 self.parent_window.middle_list.setCurrentRow(middle_count - 1)
-            # フルスクリーン時は最初のファイルを表示
-            self.current_index = 0
+            # フルスクリーン時は最後のファイルを表示
+            files = self.get_all_files_in_current_group()
+            self.current_index = len(files) - 1 if files else 0
             self.show_current_image()
             self.parent_window.right_list.setCurrentRow(self.current_index)
             # グループ名を表示
