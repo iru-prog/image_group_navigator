@@ -438,7 +438,7 @@ class FullScreenViewer(QtWidgets.QWidget):
 
         # マウスクリック無視フラグ（開いた直後のクリックを無視）
         self._ignore_mouse_click = True
-        QtCore.QTimer.singleShot(200, lambda: setattr(self, '_ignore_mouse_click', False))
+        QtCore.QTimer.singleShot(500, lambda: setattr(self, '_ignore_mouse_click', False))
 
         # フルスクリーン表示
         self.showFullScreen()
@@ -955,6 +955,11 @@ class FullScreenViewer(QtWidgets.QWidget):
         # カーソルタイマーを停止
         if hasattr(self, '_cursor_timer'):
             self._cursor_timer.stop()
+        # グループラベルタイマーを停止してラベルを非表示
+        if hasattr(self, '_group_label_timer'):
+            self._group_label_timer.stop()
+        if hasattr(self, 'group_label'):
+            self.group_label.hide()
         event.accept()
 
     def _move_current_to_trash(self):
@@ -1571,14 +1576,10 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         self.middle_list.itemSelectionChanged.connect(self.on_middle_select)
         self.right_list.itemSelectionChanged.connect(self.on_right_select)
 
-        # ダブルクリック - フルスクリーン表示
-        self.left_list.itemDoubleClicked.connect(self.on_list_double_clicked)
-        self.middle_list.itemDoubleClicked.connect(self.on_list_double_clicked)
+        # ダブルクリック - フルスクリーン表示（右リストとプレビューのみ）
         self.right_list.itemDoubleClicked.connect(self.show_fullscreen)
 
         # Enterキー - フルスクリーン表示
-        self.left_list.itemActivated.connect(self.on_list_double_clicked)
-        self.middle_list.itemActivated.connect(self.on_list_double_clicked)
         self.right_list.itemActivated.connect(self.show_fullscreen)
 
         # ↑↓ボタン
@@ -1672,14 +1673,6 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
                 return
 
         super().keyPressEvent(event)
-
-    def on_list_double_clicked(self):
-        """左リストまたは中リストがダブルクリックされた時"""
-        # 右リストの最初のファイルを選択してからフルスクリーンを開く
-        if self.right_list.count() > 0:
-            self.right_list.setCurrentRow(0)
-            # 少し待ってから開く（右リストが更新されるまで）
-            QtCore.QTimer.singleShot(50, self.show_fullscreen)
 
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
