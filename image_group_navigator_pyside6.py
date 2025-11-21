@@ -374,7 +374,7 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.info_label = QtWidgets.QLabel(self)
         self.info_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         self.info_label.setStyleSheet(
-            "color: white; padding: 4px; font-size: 15px;"
+            "color: white; background-color: transparent; padding: 4px; font-size: 15px;"
         )
         # 固定の最小サイズを設定（2行分の高さを確保）
         self.info_label.setMinimumHeight(70)
