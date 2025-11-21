@@ -436,6 +436,10 @@ class FullScreenViewer(QtWidgets.QWidget):
         self._cursor_timer.start(2000)  # 2秒後にカーソルを非表示
         self.setMouseTracking(True)  # マウス移動イベントを有効化
 
+        # マウスクリック無視フラグ（開いた直後のクリックを無視）
+        self._ignore_mouse_click = True
+        QtCore.QTimer.singleShot(200, lambda: setattr(self, '_ignore_mouse_click', False))
+
         # フルスクリーン表示
         self.showFullScreen()
 
@@ -917,6 +921,11 @@ class FullScreenViewer(QtWidgets.QWidget):
 
     def mousePressEvent(self, event):
         """マウスクリックで閉じる"""
+        # 開いた直後のクリックは無視
+        if hasattr(self, '_ignore_mouse_click') and self._ignore_mouse_click:
+            event.ignore()
+            return
+
         if event.button() == QtCore.Qt.RightButton:
             self.close()
 
