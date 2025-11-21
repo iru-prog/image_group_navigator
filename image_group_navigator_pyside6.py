@@ -408,6 +408,13 @@ class FullScreenViewer(QtWidgets.QWidget):
         self._current_files = []  # 現在のファイルリスト
         self._current_filepath = None  # 現在表示中のファイルパス
 
+        # カーソル自動非表示タイマー
+        self._cursor_timer = QtCore.QTimer(self)
+        self._cursor_timer.timeout.connect(self._hide_cursor)
+        self._cursor_timer.setSingleShot(True)
+        self._cursor_timer.start(2000)  # 2秒後にカーソルを非表示
+        self.setMouseTracking(True)  # マウス移動イベントを有効化
+
         # フルスクリーン表示
         self.showFullScreen()
 
@@ -886,6 +893,20 @@ class FullScreenViewer(QtWidgets.QWidget):
         if event.button() == QtCore.Qt.RightButton:
             self.close()
 
+    def mouseMoveEvent(self, event):
+        """マウス移動でカーソルを表示し、タイマーをリセット"""
+        self._show_cursor()
+        self._cursor_timer.start(2000)  # 2秒後に再度非表示
+        super().mouseMoveEvent(event)
+
+    def _hide_cursor(self):
+        """カーソルを非表示にする"""
+        self.setCursor(QtCore.Qt.BlankCursor)
+
+    def _show_cursor(self):
+        """カーソルを表示する"""
+        self.setCursor(QtCore.Qt.ArrowCursor)
+
     def closeEvent(self, event):
         """ウィンドウを閉じる時の処理"""
         # プリローダースレッドを停止
@@ -895,6 +916,9 @@ class FullScreenViewer(QtWidgets.QWidget):
         # APNGタイマーを停止
         if hasattr(self, '_apng_timer'):
             self._apng_timer.stop()
+        # カーソルタイマーを停止
+        if hasattr(self, '_cursor_timer'):
+            self._cursor_timer.stop()
         event.accept()
 
     def _move_current_to_trash(self):
