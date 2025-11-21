@@ -1592,9 +1592,6 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
         # 左・中リストはグループ選択なので外部アプリも開かない
         self.right_list.itemDoubleClicked.connect(self.show_fullscreen)
 
-        # Enterキー - 右リスト（ファイル）のみフルスクリーン表示
-        self.right_list.itemActivated.connect(self.show_fullscreen)
-
         # ↑↓ボタン
         self.left_up_btn.clicked.connect(
             lambda: self.move_selection(self.left_list, -1)
