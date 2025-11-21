@@ -357,14 +357,11 @@ class FullScreenViewer(QtWidgets.QWidget):
     """フルスクリーン画像ビューア"""
 
     def __init__(self, parent, initial_index=0):
-        print(f"DEBUG FullScreenViewer.__init__: Starting with initial_index={initial_index}")
         super().__init__()
-        print(f"DEBUG FullScreenViewer.__init__: super().__init__() completed")
         self.parent_window = parent
         self.current_index = initial_index
 
         # フルスクリーン設定
-        print(f"DEBUG FullScreenViewer.__init__: Setting window flags")
         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
         self.setStyleSheet("background-color: black;")
 
@@ -440,20 +437,14 @@ class FullScreenViewer(QtWidgets.QWidget):
         self.setMouseTracking(True)  # マウス移動イベントを有効化
 
         # マウスクリック無視フラグ（開いた直後のクリックを無視）
-        print(f"DEBUG FullScreenViewer.__init__: Setting up mouse click ignore flag")
         self._ignore_mouse_click = True
         QtCore.QTimer.singleShot(500, lambda: setattr(self, '_ignore_mouse_click', False))
 
         # フルスクリーン表示
-        print(f"DEBUG FullScreenViewer.__init__: About to call showFullScreen()")
         self.showFullScreen()
-        print(f"DEBUG FullScreenViewer.__init__: showFullScreen() completed")
 
         # 初期画像を表示
-        print(f"DEBUG FullScreenViewer.__init__: About to call show_current_image()")
         self.show_current_image()
-        print(f"DEBUG FullScreenViewer.__init__: show_current_image() completed")
-        print(f"DEBUG FullScreenViewer.__init__: Constructor finished")
 
     def get_all_files_in_current_group(self):
         """現在のグループ内の全ファイルリストを取得"""
@@ -474,12 +465,9 @@ class FullScreenViewer(QtWidgets.QWidget):
 
     def show_current_image(self):
         """現在のインデックスの画像を表示"""
-        print(f"DEBUG show_current_image: Getting files from current group")
         files = self.get_all_files_in_current_group()
-        print(f"DEBUG show_current_image: Got {len(files) if files else 0} files")
 
         if not files:
-            print(f"DEBUG show_current_image: No files, closing fullscreen")
             self.close()
             return
 
@@ -1705,37 +1693,22 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
 
     def show_fullscreen(self):
         """フルスクリーン表示を開く"""
-        try:
-            print(f"DEBUG: show_fullscreen called")
+        # 左リストと中リストが選択されているか確認
+        if not self.left_list.currentItem() or not self.middle_list.currentItem():
+            return
 
-            # 左リストと中リストが選択されているか確認
-            if not self.left_list.currentItem() or not self.middle_list.currentItem():
-                print(f"DEBUG: left or middle list not selected")
-                return
+        # 右リストが空の場合は何もしない
+        if self.right_list.count() == 0:
+            return
 
-            # 右リストが空の場合は何もしない
-            if self.right_list.count() == 0:
-                print(f"DEBUG: right list is empty")
-                return
+        # 右リストが選択されていない場合は最初のファイルを表示
+        current_index = self.right_list.currentRow()
+        if current_index < 0:
+            current_index = 0
+            self.right_list.setCurrentRow(current_index)
 
-            # 右リストが選択されていない場合は最初のファイルを表示
-            current_index = self.right_list.currentRow()
-            print(f"DEBUG: current_index = {current_index}")
-            if current_index < 0:
-                current_index = 0
-                self.right_list.setCurrentRow(current_index)
-                print(f"DEBUG: set current_index to 0")
-
-            print(f"DEBUG: About to create FullScreenViewer...")
-            self.fullscreen_viewer = FullScreenViewer(self, current_index)
-            print(f"DEBUG: FullScreenViewer created successfully")
-            print(f"DEBUG: About to call show()...")
-            self.fullscreen_viewer.show()
-            print(f"DEBUG: show() completed")
-        except Exception as e:
-            import traceback
-            print(f"ERROR in show_fullscreen: {e}")
-            print(f"Traceback:\n{traceback.format_exc()}")
+        self.fullscreen_viewer = FullScreenViewer(self, current_index)
+        self.fullscreen_viewer.show()
 
     def browse_folder(self):
         """フォルダ選択ダイアログ"""
