@@ -1621,8 +1621,11 @@ class ImageGroupNavigator(QtWidgets.QMainWindow):
             if current > 0:
                 self.right_list.setCurrentRow(current - 1)
             else:
-                # 最初のファイル → 前の中間グループ
+                # 最初のファイル → 前の中間グループの最後のファイルへ
                 self.move_to_prev_middle_group()
+                # 前のグループの最後のファイルを選択
+                if self.right_list.count() > 0:
+                    self.right_list.setCurrentRow(self.right_list.count() - 1)
             event.accept()
             return
 
